@@ -1,0 +1,13 @@
+{
+  "name": "contextos-for-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "insights": "node scripts/generate-insights.mjs --days 30",
+    "optimize-context": "node scripts/context-budget.mjs --days 14",
+    "rescue-session": "node scripts/rescue-session.mjs --max-count 20",
+    "test": "node --test"
+  }
+}

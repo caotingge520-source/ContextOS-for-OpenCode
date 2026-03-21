@@ -1,0 +1,5 @@
+node_modules/
+.contextos/analysis/*.json
+.contextos/rescue/*.json
+insights-report.html
+.DS_Store

@@ -1,163 +1,98 @@
 # ContextOS for OpenCode
 
-ContextOS for OpenCode is a local-first context operating system built on top of OpenCode.
-OpenCode gets more powerful with use. ContextOS makes sure it doesn’t get more chaotic.
+A local-first control layer for OpenCode.
 
-It helps heavy OpenCode users understand how they actually work, reduce context waste, protect long sessions from getting messy, and turn repeated instructions into reusable project rules.
+ContextOS for OpenCode is a free, MIT-licensed scaffold that helps you do three things without adding any cloud dependency:
 
-Instead of building yet another AI shell, ContextOS focuses on a harder problem:
+1. **See how you actually use OpenCode** with a local `insights-report.html`
+2. **Reduce context waste** with a context budget audit
+3. **Protect long sessions** with a compacting guard file and rescue snapshots
 
-**how to make OpenCode get better with use, not worse.**
+This starter is designed to be dropped into a repo and then extended by OpenCode itself.
 
----
+## What is included
 
-## Why this exists
+- `.opencode/commands/`
+  - `/insights`
+  - `/optimize-context`
+  - `/rescue-session`
+  - `/guard-refresh`
+  - `/continue-contextos`
+- `.opencode/skills/`
+  - `insights`
+  - `context-router`
+  - `session-guard`
+- `.opencode/plugins/contextos-guard.js`
+  - injects `.contextos/guard/SESSION_GUARD.md` into compaction context
+- `scripts/`
+  - `generate-insights.mjs`
+  - `context-budget.mjs`
+  - `rescue-session.mjs`
+  - `contextos-lib.mjs`
+- `templates/`
+  - `report-template.html`
+  - `session-guard-template.md`
+- `docs/`
+  - architecture, roadmap, MVP
 
-As OpenCode usage gets heavier, the workflow often becomes more powerful but also more fragile.
+## Quick start
 
-More skills means more surface area.  
-More MCP servers means more context pressure.  
-Longer sessions mean more drift, more compaction risk, and more forgotten constraints.  
-Repeated instructions pile up, but never become reusable system rules.
+Unzip this into the root of the project you want to work on.
 
-ContextOS for OpenCode exists to solve that layer.
+Then make sure `opencode` is available in your shell.
 
-It is designed as a local-first control layer for serious OpenCode workflows.
+Run:
 
----
+```bash
+opencode
+```
 
-## What it does
+Inside OpenCode, try:
 
-ContextOS currently focuses on four things:
+```text
+/insights
+/optimize-context
+/guard-refresh
+/rescue-session
+/continue-contextos
+```
 
-### 1. Insights
-Analyze recent OpenCode session history and generate an interactive report:
-- usage patterns
-- friction points
-- repeated instructions
-- workflow suggestions
-- AGENTS.md / CLAUDE.md optimization candidates
+You can also run the scripts directly:
 
-### 2. Rule Synthesis
-Turn repeated user instructions into concrete rule patches:
-- project-level `AGENTS.md` suggestions
-- global instruction suggestions
-- skill candidates for repeated workflows
+```bash
+node scripts/generate-insights.mjs --days 30
+node scripts/context-budget.mjs --days 14
+node scripts/rescue-session.mjs --max-count 20
+```
 
-### 3. Context Optimization
-Show where context is being wasted and recommend actions:
-- heavy skills
-- oversized tool outputs
-- repeated prompt patterns
-- avoidable context load
+## What gets written
 
-### 4. Session Guard
-Protect long-running work by preserving essential task state:
-- task goal snapshot
-- recent decisions
-- working file hints
-- rescue metadata for recovery flows
+- `insights-report.html`
+- `.contextos/analysis/insights.json`
+- `.contextos/analysis/context-budget.json`
+- `.contextos/rescue/*.json`
+- `.contextos/rescue/index.md`
 
----
+## Current scope
 
-## Design principles
+This starter deliberately stays local-first.
 
-ContextOS follows a few simple principles:
+It does **not** do cross-device sync, hosted storage, or account management.
 
-- **local-first** — your analysis stays on your machine
-- **workflow-first** — optimize how work gets done, not just token counts
-- **gradual control** — suggest first, automate later
-- **OpenCode-native** — build with OpenCode conventions instead of fighting them
-- **human-readable outputs** — reports, patches, and rescue states should be understandable
+## Known limitations
 
----
+This starter reads session history through the documented OpenCode CLI surface:
+- `opencode session list --format json`
+- `opencode export <sessionID>`
 
-## Core commands
+OpenCode versions can change the exact JSON shape of exports over time. The parsers here are defensive, but you should treat them as a strong starter rather than a guaranteed forever-stable parser.
 
-The current starter version includes the following command entry points:
+## Suggested first build loop
 
-- `/insights`
-- `/optimize-context`
-- `/guard-refresh`
-- `/rescue-session`
-- `/continue-contextos`
-
----
-
-## Project status
-
-This project is currently in an early local-first alpha.
-
-The current focus is:
-1. session analysis
-2. rule patch generation
-3. context budget suggestions
-4. lightweight session protection
-
-Cross-device sync is intentionally out of scope for now.
-
----
-
-## Roadmap
-
-### Phase 1
-- local session analysis
-- HTML insights report
-- AGENTS.md / CLAUDE.md patch generation
-
-### Phase 2
-- Router Lite
-- context budget suggestions
-- skill / MCP / output load recommendations
-
-### Phase 3
-- Session Guard improvements
-- stronger compaction protection
-- rescue and continuation workflows
-
----
-
-## Who this is for
-
-ContextOS is built for people who use OpenCode heavily enough to feel the real pain:
-
-- long sessions
-- repeated instructions
-- prompt drift
-- context bloat
-- compaction fragility
-- workflow inconsistency
-
-If your OpenCode setup is starting to feel powerful but unstable, this project is for you.
-
----
-
-## Installation
-
-This repository is currently distributed as a local-first starter project.
-
-Unzip into your project root, review the included files, and start with:
-
-- `/insights`
-- report generation
-- rule patch review
-- session guard refresh
-
-Detailed setup instructions are in `START_HERE.md`.
-
----
-
-## Philosophy
-
-ContextOS is not trying to replace OpenCode.
-
-It is trying to become the layer that helps OpenCode stay sharp, stable, and reusable as usage gets more complex.
-
-The long-term goal is simple:
-
-**Make OpenCode workflows more governable, more inspectable, and more resilient.**
-
----
+1. Run `/insights`
+2. Review the generated AGENTS patch suggestions
+3. Run `/guard-refresh`
+4. Let OpenCode implement the next roadmap item with `/continue-contextos`
 
 ## License
 

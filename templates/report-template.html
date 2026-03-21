@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ContextOS Insights Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #131a2b;
+      --panel-2: #1a2338;
+      --text: #e9eefc;
+      --muted: #9fb0d7;
+      --line: #2a3551;
+      --accent: #78a8ff;
+      --good: #7ee787;
+      --warn: #ffcc66;
+      --bad: #ff8a8a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(180deg, #09101d 0%, #0f1526 100%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+    .hero {
+      display: grid;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.1;
+    }
+    .muted { color: var(--muted); }
+    .cards {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      margin: 22px 0 28px;
+    }
+    .card, .panel {
+      background: rgba(19, 26, 43, 0.9);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      backdrop-filter: blur(8px);
+    }
+    .card h3, .panel h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
+    .metric {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+    .grid-2 {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1.15fr .85fr;
+      margin-bottom: 16px;
+    }
+    .grid-3 {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(3, 1fr);
+      margin-bottom: 16px;
+    }
+    .panel {
+      margin-bottom: 16px;
+    }
+    .panel h2 {
+      font-size: 20px;
+      color: var(--text);
+    }
+    .chart {
+      margin-top: 14px;
+    }
+    .bars {
+      display: grid;
+      gap: 10px;
+    }
+    .bar {
+      display: grid;
+      grid-template-columns: 180px 1fr 60px;
+      gap: 12px;
+      align-items: center;
+    }
+    .bar span.label {
+      color: var(--muted);
+      font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .track {
+      height: 10px;
+      background: #0c1324;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .fill {
+      height: 100%;
+      background: linear-gradient(90deg, #5f8dff 0%, #91b4ff 100%);
+      border-radius: 999px;
+    }
+    .heatmap {
+      display: grid;
+      grid-template-columns: repeat(24, minmax(10px, 1fr));
+      gap: 4px;
+      margin-top: 12px;
+    }
+    .heat-row {
+      display: contents;
+    }
+    .cell {
+      aspect-ratio: 1;
+      border-radius: 4px;
+      background: #111827;
+      border: 1px solid #1f2b43;
+      position: relative;
+    }
+    .cell[data-level="1"] { background: #1f3766; }
+    .cell[data-level="2"] { background: #3155a6; }
+    .cell[data-level="3"] { background: #5b88ff; }
+    .cell[data-level="4"] { background: #8fb0ff; }
+    .line-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .line-row {
+      display: grid;
+      grid-template-columns: 70px 1fr 50px;
+      gap: 10px;
+      align-items: center;
+    }
+    .line-row .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+    .case-card {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    details summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+    pre {
+      background: #0a1020;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #d7e3ff;
+    }
+    ul {
+      padding-left: 18px;
+      margin: 10px 0 0;
+    }
+    .footer {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 900px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .bar { grid-template-columns: 120px 1fr 48px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <h1>ContextOS Insights Report</h1>
+        <div class="muted">最近 OpenCode 使用洞察与上下文治理建议</div>
+        <div class="muted">时间范围：__DATE_RANGE__ · 生成时间：__GENERATED_AT__</div>
+      </div>
+      <div class="panel">__EXECUTIVE_SUMMARY__</div>
+    </section>
+
+    <section class="cards">
+      <div class="card"><h3>总 Session 数</h3><div class="metric">__TOTAL_SESSIONS__</div></div>
+      <div class="card"><h3>总消息数</h3><div class="metric">__TOTAL_MESSAGES__</div></div>
+      <div class="card"><h3>活跃天数</h3><div class="metric">__ACTIVE_DAYS__</div></div>
+      <div class="card"><h3>任务完成率</h3><div class="metric">__COMPLETION_RATE__</div></div>
+      <div class="card"><h3>平均 Session 长度</h3><div class="metric">__AVG_SESSION_LENGTH__</div></div>
+      <div class="card"><h3>摩擦率</h3><div class="metric">__FRICTION_RATE__</div></div>
+      <div class="card"><h3>日均 Session</h3><div class="metric">__DAILY_AVG_SESSIONS__</div></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>活跃热力图</h2>
+        <div class="muted">7×24 最近 session 活跃分布</div>
+        <div id="heatmap" class="heatmap chart"></div>
+      </div>
+      <div class="panel">
+        <h2>满意度趋势</h2>
+        <div class="muted">按周聚合 achieved 比率</div>
+        <div id="satisfaction" class="line-list chart"></div>
+      </div>
+    </section>
+
+    <section class="grid-3">
+      <div class="panel">
+        <h2>工具使用分布</h2>
+        <div id="tools" class="bars chart"></div>
+      </div>
+      <div class="panel">
+        <h2>任务分布</h2>
+        <div id="tasks" class="bars chart"></div>
+      </div>
+      <div class="panel">
+        <h2>Agent 分布</h2>
+        <div id="agents" class="bars chart"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>摩擦分析</h2>
+      __FRICTION_ANALYSIS__
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>做得好的</h2>
+        __WHATS_WORKING__
+      </div>
+      <div class="panel">
+        <h2>快速改进</h2>
+        __QUICK_WINS__
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>AGENTS.md 建议</h2>
+        __AGENTS_MD_SUGGESTIONS__
+      </div>
+      <div class="panel">
+        <h2>深度建议</h2>
+        __DEEP_SUGGESTIONS__
+      </div>
+    </section>
+
+    <div class="footer">
+      本报告完全在本地生成，不依赖外部云服务。
+    </div>
+  </div>
+
+  <script>
+    const HEATMAP = __HEATMAP_DATA__;
+    const DAILY = __DAILY_ACTIVITY_DATA__;
+    const SATISFACTION = __SATISFACTION_TREND_DATA__;
+    const TOOLS = __TOOL_USAGE_DATA__;
+    const TASKS = __TASK_DISTRIBUTION_DATA__;
+    const AGENTS = __AGENT_DISTRIBUTION_DATA__;
+
+    function renderBars(targetId, entries, labelKey) {
+      const target = document.getElementById(targetId);
+      const max = Math.max(...entries.map(item => item.count), 1);
+      target.innerHTML = entries.map(item => {
+        const width = Math.max(4, Math.round((item.count / max) * 100));
+        return `
+          <div class="bar">
+            <span class="label">${item[labelKey]}</span>
+            <div class="track"><div class="fill" style="width:${width}%"></div></div>
+            <span class="label">${item.count}</span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderHeatmap(targetId, matrix) {
+      const target = document.getElementById(targetId);
+      const max = Math.max(...matrix.flat(), 1);
+      const cells = [];
+      matrix.forEach((row, dayIndex) => {
+        row.forEach((value, hourIndex) => {
+          const ratio = value / max;
+          const level =
+            ratio === 0 ? 0 :
+            ratio < 0.25 ? 1 :
+            ratio < 0.5 ? 2 :
+            ratio < 0.75 ? 3 : 4;
+
+          cells.push(`<div class="cell" data-level="${level}" title="day=${dayIndex}, hour=${hourIndex}, count=${value}"></div>`);
+        });
+      });
+      target.innerHTML = cells.join("");
+    }
+
+    function renderLineRows(targetId, entries) {
+      const target = document.getElementById(targetId);
+      const max = Math.max(...entries.map(item => item.rate || item.count), 1);
+      target.innerHTML = entries.map(item => {
+        const value = item.rate ?? item.count;
+        const width = Math.max(6, Math.round((value / max) * 100));
+        const label = item.week || item.date || item.label || "item";
+        return `
+          <div class="line-row">
+            <span class="small">${label}</span>
+            <div class="track"><div class="fill" style="width:${width}%"></div></div>
+            <span class="small">${value}</span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    renderHeatmap("heatmap", HEATMAP);
+    renderLineRows("satisfaction", SATISFACTION);
+    renderBars("tools", TOOLS, "tool");
+    renderBars("tasks", TASKS, "type");
+    renderBars("agents", AGENTS, "agent");
+  </script>
+</body>
+</html>
