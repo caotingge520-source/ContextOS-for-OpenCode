@@ -9,10 +9,7 @@ Run:
 
 Then:
 1. Read `@.contextos/analysis/context-budget.json`
-2. Explain the biggest sources of context drag
-3. Recommend exactly three actions
-4. Prefer actions in this order:
-   - turn repeated instructions into `AGENTS.md`
-   - refresh `SESSION_GUARD.md`
-   - split repeatable workflows into skills
+2. Mention risk level, score, top 3 risk sources, and immediate action
+3. Read `@.contextos/analysis/context-budget-report.html` when visual context is needed
+4. Keep recommendation order practical: guard/rescue/summarize/scope/rules
 5. Keep the answer practical and short

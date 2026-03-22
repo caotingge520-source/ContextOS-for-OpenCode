@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ContextOS Runtime Risk Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #131a2b;
+      --line: #2a3551;
+      --text: #e9eefc;
+      --muted: #9fb0d7;
+      --good: #7ee787;
+      --warn: #ffcc66;
+      --bad: #ff8a8a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #09101d 0%, #0f1526 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 18px 52px;
+    }
+    .panel {
+      background: rgba(19, 26, 43, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .head {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1.2fr 0.8fr;
+    }
+    .risk-card {
+      border-left: 6px solid var(--warn);
+    }
+    .risk-card.green { border-left-color: var(--good); }
+    .risk-card.yellow { border-left-color: var(--warn); }
+    .risk-card.red { border-left-color: var(--bad); }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin: 0 0 10px; font-size: 18px; }
+    h3 { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+    ul { margin: 0; padding-left: 18px; }
+    .muted { color: var(--muted); }
+    .metrics {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+    .metric {
+      background: #0e1527;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .metric .v { font-size: 22px; font-weight: 700; }
+    .signal {
+      background: #0d1426;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .signal h4 {
+      margin: 0 0 8px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+    }
+    .signal.green h4 { color: var(--good); }
+    .signal.yellow h4 { color: var(--warn); }
+    .signal.red h4 { color: var(--bad); }
+    .cols {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    .footer { color: var(--muted); font-size: 12px; margin-top: 10px; }
+    @media (max-width: 900px) {
+      .head, .cols { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="head">
+      <div class="panel">
+        <h1>Context Runtime Risk Report</h1>
+        <div class="muted">生成时间：__GENERATED_AT__</div>
+      </div>
+      <div class="panel risk-card __RISK_LEVEL_CLASS__">
+        <h3>当前风险等级</h3>
+        <div style="font-size:32px;font-weight:700;">__RISK_LEVEL__</div>
+        <div class="muted">风险分：__RISK_SCORE__/100</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Session 负载概览</h2>
+      <div class="metrics">
+        <div class="metric"><div class="muted">扫描 Session</div><div class="v">__SCANNED_SESSIONS__</div></div>
+        <div class="metric"><div class="muted">总消息数</div><div class="v">__TOTAL_MESSAGES__</div></div>
+        <div class="metric"><div class="muted">总字符数</div><div class="v">__TOTAL_CHARS__</div></div>
+        <div class="metric"><div class="muted">单会话最大消息</div><div class="v">__MAX_MESSAGES__</div></div>
+        <div class="metric"><div class="muted">单会话最大字符</div><div class="v">__MAX_CHARS__</div></div>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h2>Top 风险来源</h2>
+        <ul>__TOP_RISK_SOURCES__</ul>
+      </div>
+      <div class="panel">
+        <h2>建议动作</h2>
+        <ul>
+          <li><strong>立即动作：</strong>__IMMEDIATE_ACTION__</li>
+        </ul>
+        <ul style="margin-top:10px;">__FOLLOW_UP_ACTIONS__</ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>风险信号与证据</h2>
+      __SIGNALS__
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h2>Guard / Task / Rescue 状态</h2>
+        <ul>
+          <li><strong>Guard:</strong> __GUARD_STATUS__</li>
+          <li><strong>Task Anchor:</strong> __TASK_STATUS__</li>
+          <li><strong>Rescue:</strong> __RESCUE_STATUS__</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>运行提示</h2>
+        <ul>
+          <li>该报告用于“先活下来”的风险治理，不是美化分析。</li>
+          <li>建议先执行立即动作，再决定是否继续扩张上下文。</li>
+          <li>风险等级来自多信号可解释评分，避免单一 token 误判。</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="footer">ContextOS local-first runtime governance</div>
+  </div>
+</body>
+</html>
