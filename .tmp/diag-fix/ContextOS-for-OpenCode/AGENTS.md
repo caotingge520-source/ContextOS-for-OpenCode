@@ -39,18 +39,6 @@ Files:
 - `.contextos/guard/SESSION_GUARD.md`
 - `.opencode/plugins/contextos-guard.js`
 
-### 5. Context Optimization Rules
-
-- 复用高频指令：当同类用户指令在多个 session 出现时，沉淀为此文件中的显式规则，减少短期复述成本。
-- 长结果摘要化：跨上下文接续前，将超长输出总结为结论与关键决策，不要继续沿用整段长文本。
-- 会话接续前后：进入复杂子任务前先更新 `.contextos/guard/SESSION_GUARD.md`，避免 compaction 期间目标丢失。
-
-#### Suggested rules to keep local-first
-
-- `Continue if you have next steps`
-- `如何评价游戏《仁王3》，这一作有什么新的玩法和体验？`
-- `根据agents.MD 构建本项目的智能体`
-
 ### 4. Session Rescue
 Mirror recent session exports locally so the user can recover intent even if session UI loading is flaky.
 

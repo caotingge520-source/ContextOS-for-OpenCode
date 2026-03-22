@@ -1,0 +1,32 @@
+{
+  "session": {
+    "id": "sess_1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Please fix the MCP config and do not touch unrelated files."
+      },
+      {
+        "role": "assistant",
+        "content": "I will inspect the config and keep the scope tight."
+      },
+      {
+        "role": "tool",
+        "tool": "read",
+        "content": "opencode.jsonc contents"
+      },
+      {
+        "role": "assistant",
+        "content": "I found the issue in the plugin entry."
+      },
+      {
+        "role": "user",
+        "content": "Do not change too much. Keep the patch small."
+      },
+      {
+        "role": "assistant",
+        "content": "Done. The config works now and the patch is small."
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "sess_1",
+    "title": "Fix MCP config",
+    "createdAt": "2026-03-18T09:00:00.000Z",
+    "updatedAt": "2026-03-18T10:30:00.000Z",
+    "messageCount": 12,
+    "project": "/repo/a",
+    "agent": "build"
+  },
+  {
+    "id": "sess_2",
+    "title": "Generate docs",
+    "createdAt": "2026-03-19T08:00:00.000Z",
+    "updatedAt": "2026-03-19T09:00:00.000Z",
+    "messageCount": 8,
+    "project": "/repo/a",
+    "agent": "build"
+  }
+]

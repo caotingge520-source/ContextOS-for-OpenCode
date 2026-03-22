@@ -8,9 +8,6 @@
     "insights": "node scripts/generate-insights.mjs --days 30",
     "optimize-context": "node scripts/context-budget.mjs --days 14",
     "rescue-session": "node scripts/rescue-session.mjs --max-count 20",
-    "insights:out": "set \"CONTEXTOS_OUTPUT_DIR=D:\\ai\\ctxos-out\" && node scripts/generate-insights.mjs --days 30",
-    "optimize-context:out": "set \"CONTEXTOS_OUTPUT_DIR=D:\\ai\\ctxos-out\" && node scripts/context-budget.mjs --days 14",
-    "rescue-session:out": "set \"CONTEXTOS_OUTPUT_DIR=D:\\ai\\ctxos-out\" && node scripts/rescue-session.mjs --max-count 20",
     "test": "node --test"
   }
 }

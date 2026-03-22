@@ -1,12 +1,15 @@
 import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import { spawnSync } from "node:child_process"
+import { execSync, spawnSync } from "node:child_process"
 
 export const ROOT = process.cwd()
-export const ANALYSIS_DIR = path.join(ROOT, ".contextos", "analysis")
-export const RESCUE_DIR = path.join(ROOT, ".contextos", "rescue")
-export const GUARD_PATH = path.join(ROOT, ".contextos", "guard", "SESSION_GUARD.md")
+export const OUTPUT_ROOT = process.env.CONTEXTOS_OUTPUT_DIR
+  ? path.resolve(process.env.CONTEXTOS_OUTPUT_DIR)
+  : ROOT
+export const ANALYSIS_DIR = path.join(OUTPUT_ROOT, ".contextos", "analysis")
+export const RESCUE_DIR = path.join(OUTPUT_ROOT, ".contextos", "rescue")
+export const GUARD_PATH = path.join(OUTPUT_ROOT, ".contextos", "guard", "SESSION_GUARD.md")
 
 export function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true })
@@ -73,18 +76,59 @@ export function parseJsonLoose(raw) {
   throw new Error("Failed to parse JSON output from OpenCode")
 }
 
+const CLI_PATH_CACHE = new Map()
+
+function resolveCommand(command) {
+  const raw = String(command || "opencode").trim()
+  if (raw.includes(path.sep)) {
+    return raw
+  }
+
+  if (CLI_PATH_CACHE.has(raw)) {
+    return CLI_PATH_CACHE.get(raw)
+  }
+
+  const probeCommand = process.platform === "win32"
+    ? `where ${JSON.stringify(raw)}`
+    : `command -v ${JSON.stringify(raw)}`
+
+  try {
+    const probeOutput = String(
+      execSync(probeCommand, {
+        encoding: "utf8",
+        env: { ...process.env },
+        shell: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    ).trim()
+
+    const firstLine = probeOutput.split(/\r?\n/)[0]
+    if (firstLine) {
+      CLI_PATH_CACHE.set(raw, firstLine)
+      return firstLine
+    }
+  } catch {}
+
+  CLI_PATH_CACHE.set(raw, raw)
+  return raw
+}
+
 export function execJsonCommand(args, options = {}) {
-  const command = options.command ?? "opencode"
+  const command = resolveCommand(options.command ?? "opencode")
+  const shell = process.platform === "win32"
   const result = spawnSync(command, args, {
     encoding: "utf8",
     cwd: options.cwd ?? ROOT,
     env: { ...process.env, ...(options.env ?? {}) },
+    shell,
+    maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
+    timeout: options.timeout,
   })
 
   if (result.error) {
     if (result.error.code === "ENOENT") {
       throw new Error(
-        "Could not find `opencode` in PATH. Install OpenCode first or run these scripts from an environment where the OpenCode CLI is available.",
+        `Could not find executable command "${command}" in PATH. Install OpenCode first or run these scripts from an environment where the OpenCode CLI is available.`,
       )
     }
     throw result.error
@@ -106,8 +150,23 @@ export function listSessions({ maxCount = 100 } = {}) {
   return normalizeSessions(data)
 }
 
-export function exportSession(sessionID) {
-  return execJsonCommand(["export", sessionID])
+export function exportSession(sessionID, options = {}) {
+  return execJsonCommand(["export", sessionID], {
+    timeout: parseTimeoutOption(options),
+  })
+}
+
+function parseTimeoutOption(options = {}) {
+  if (options.timeoutMs == null && options.timeout == null) {
+    return undefined
+  }
+
+  const timeoutMs = Number(options.timeoutMs ?? options.timeout)
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return undefined
+  }
+
+  return timeoutMs
 }
 
 export function normalizeSessions(data) {
@@ -119,6 +178,7 @@ export function normalizeSessions(data) {
     .map((item) => {
       const id =
         item?.id ||
+        item?.info?.id ||
         item?.sessionID ||
         item?.sessionId ||
         item?.session?.id ||
@@ -127,6 +187,7 @@ export function normalizeSessions(data) {
         null
 
       const title =
+        item?.info?.title ||
         item?.title ||
         item?.name ||
         item?.summary ||
@@ -135,6 +196,9 @@ export function normalizeSessions(data) {
         "Untitled session"
 
       const createdAt =
+        item?.info?.time?.created ||
+        item?.info?.created ||
+        item?.created ||
         item?.createdAt ||
         item?.created_at ||
         item?.startedAt ||
@@ -143,6 +207,9 @@ export function normalizeSessions(data) {
         null
 
       const updatedAt =
+        item?.info?.time?.updated ||
+        item?.info?.updated ||
+        item?.updated ||
         item?.updatedAt ||
         item?.updated_at ||
         item?.lastMessageAt ||
@@ -159,15 +226,25 @@ export function normalizeSessions(data) {
         0
 
       const project =
+        item?.info?.directory ||
+        item?.info?.projectID ||
         item?.project ||
+        item?.projectId ||
         item?.directory ||
+        item?.projectID ||
         item?.cwd ||
         item?.worktree ||
         item?.session?.directory ||
         item?.path ||
         "unknown-project"
 
-      const agent = item?.agent || item?.agentName || item?.session?.agent || "unknown-agent"
+      const agent =
+        item?.info?.agent ||
+        item?.agent ||
+        item?.agentName ||
+        item?.session?.agent ||
+        item?.session?.info?.agent ||
+        "unknown-agent"
 
       return {
         id,
@@ -222,6 +299,8 @@ export function flattenText(value) {
   if (typeof value === "number" || typeof value === "boolean") return String(value)
   if (Array.isArray(value)) return value.map(flattenText).filter(Boolean).join("\n")
   if (typeof value === "object") {
+    if (value.state?.output && typeof value.state.output === "string") return value.state.output
+    if (value.state?.error && typeof value.state.error === "string") return value.state.error
     if (typeof value.text === "string") return value.text
     if (typeof value.content === "string") return value.content
     if (typeof value.value === "string") return value.value
@@ -239,7 +318,14 @@ export function flattenText(value) {
 
 function looksLikeMessage(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  if (typeof value.type === "string" && (typeof value.messageID === "string" || typeof value.callID === "string")) {
+    return false
+  }
+  if (typeof value.type === "string" && typeof value.state === "object" && value.state !== null) {
+    return false
+  }
   if (typeof value.role === "string") return true
+  if (typeof value.info?.role === "string") return true
   if (typeof value.tool === "string" || typeof value.toolName === "string") return true
   if (typeof value.name === "string" && (value.input || value.output || value.result)) return true
   if (typeof value.content === "string") return true
@@ -290,7 +376,10 @@ export function extractMessages(exportData) {
 }
 
 export function normalizeMessage(obj) {
+  const info = obj.info || {}
+
   const roleCandidate =
+    info.role ||
     obj.role ||
     obj.author?.role ||
     obj.type ||
@@ -298,8 +387,16 @@ export function normalizeMessage(obj) {
     (obj.tool || obj.toolName ? "tool" : null)
 
   const role = normalizeRole(roleCandidate)
-  const name = obj.tool || obj.toolName || obj.name || obj.functionName || null
+  let name = obj.tool || obj.toolName || obj.name || obj.functionName || info.tool || null
+  if (!name && Array.isArray(obj.parts)) {
+    const toolPart = obj.parts.find((item) => typeof item?.tool === "string")
+    if (toolPart?.tool) {
+      name = toolPart.tool
+    }
+  }
+
   const timestamp =
+    info.time?.created ||
     obj.timestamp ||
     obj.createdAt ||
     obj.updatedAt ||
@@ -322,10 +419,18 @@ export function normalizeMessage(obj) {
   return {
     role,
     name,
-    timestamp: timestamp ? new Date(timestamp).toISOString() : null,
+    timestamp: toISOStringSafe(timestamp),
+    agent: info.agent || obj.agent || obj.mode || null,
     text,
     raw: obj,
   }
+}
+
+function toISOStringSafe(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
 }
 
 export function normalizeRole(value) {
@@ -364,10 +469,28 @@ export function countBy(items, selector) {
 }
 
 export function classifyTask(messages) {
-  const text = normalizeTextForMatch(messages.filter((m) => m.role === "user").slice(0, 5).map((m) => m.text).join("\n"))
+  const options = arguments[1] || {}
+  const rawText = messages
+    .filter((m) => m.role === "user")
+    .slice(0, 5)
+    .map((m) => m.text)
+    .join("\n")
+  const text = normalizeTextForMatch(rawText)
+
+  const base = {
+    label: "other",
+    source: "fallback",
+    matchedRule: "other",
+    confidence: messages.length > 0 ? 0.3 : 0.1,
+    evidence: {
+      rawText: rawText.slice(0, 500),
+      matchedPattern: null,
+      matchedSnippet: text.slice(0, 240),
+    },
+  }
 
   const rules = [
-    ["debug", /(debug|bug|fix|failing|broken|error|报错|修复|调试|失败)/],
+    ["debug", /(debug|bug|fix|failing|broken|error|报错|修复|调试|失败)/, "content"],
     ["refactor", /(refactor|cleanup|clean up|simplify|restructure|重构|整理)/],
     ["config", /(config|configure|setup|install|mcp|plugin|auth|json|配置|安装|环境)/],
     ["docs", /(docs|documentation|readme|writeup|article|blog|文档|写作)/],
@@ -375,41 +498,114 @@ export function classifyTask(messages) {
     ["review", /(review|audit|check this code|代码审查|review this)/],
     ["data", /(data|csv|sql|metrics|analyze dataset|数据|分析表格)/],
     ["devops", /(deploy|docker|ci|cd|workflow|release|k8s|部署)/],
-    ["research", /(research|explore|investigate|compare|why|调研|研究|探索|查找)/],
+    ["research", /(research|explore|investigate|compare|why|调研|研究|探索|查找|如何|怎么样|什么|评价|是否|要不要|怎么)/],
     ["implement", /(implement|build|create|add|make|feature|实现|新功能|做一个)/],
   ]
 
   for (const [label, regex] of rules) {
-    if (regex.test(text)) return label
+    if (regex.test(text)) {
+      base.label = label
+      base.source = "content-regex"
+      base.matchedRule = label
+      base.confidence = 0.95
+      base.evidence.matchedPattern = regex.source
+      base.evidence.matchedSnippet = pickSnippet(text, regex)
+      return options.includeDiagnostics ? base : base.label
+    }
   }
 
-  return "other"
+  return options.includeDiagnostics ? base : base.label
 }
 
 export function classifyOutcome(messages) {
+  const options = arguments[1] || {}
   const tail = normalizeTextForMatch(messages.slice(-8).map((m) => m.text).join("\n"))
+  const base = {
+    label: "other",
+    source: "fallback",
+    matchedRule: "other",
+    confidence: messages.length > 0 ? 0.4 : 0.1,
+    evidence: {
+      rawText: messages.slice(-8).map((m) => m.text).join("\n").slice(0, 500),
+      matchedPattern: null,
+      matchedSnippet: tail.slice(0, 240),
+    },
+  }
+
   if (/(didnt work|didn't work|still broken|still failing|failed|cannot fix|没成功|失败|还是不行)/.test(tail)) {
-    return "failed"
+    base.label = "failed"
+    base.source = "content-regex"
+    base.matchedRule = "failed"
+    base.confidence = 0.94
+    base.evidence.matchedPattern = /(didnt work|didn't work|still broken|still failing|failed|cannot fix|没成功|失败|还是不行)/.source
+    base.evidence.matchedSnippet = pickSnippet(tail, /(didnt work|didn't work|still broken|still failing|failed|cannot fix|没成功|失败|还是不行)/i)
+    return options.includeDiagnostics ? base : base.label
   }
   if (/(done|resolved|works now|fixed|implemented|all set|搞定|完成|可以了|好了)/.test(tail)) {
-    return "achieved"
+    base.label = "achieved"
+    base.source = "content-regex"
+    base.matchedRule = "achieved"
+    base.confidence = 0.92
+    base.evidence.matchedPattern = /(done|resolved|works now|fixed|implemented|all set|搞定|完成|可以了|好了)/.source
+    base.evidence.matchedSnippet = pickSnippet(tail, /(done|resolved|works now|fixed|implemented|all set|搞定|完成|可以了|好了)/i)
+    return options.includeDiagnostics ? base : base.label
   }
   if (/(later|next step|remaining|still need|先这样|还需要|下一步)/.test(tail)) {
-    return "partial"
+    base.label = "partial"
+    base.source = "content-regex"
+    base.matchedRule = "partial"
+    base.confidence = 0.93
+    base.evidence.matchedPattern = /(later|next step|remaining|still need|先这样|还需要|下一步)/.source
+    base.evidence.matchedSnippet = pickSnippet(tail, /(later|next step|remaining|still need|先这样|还需要|下一步)/i)
+    return options.includeDiagnostics ? base : base.label
   }
   if (/(stop|ignore this|never mind|算了|不用了)/.test(tail)) {
-    return "abandoned"
+    base.label = "abandoned"
+    base.source = "content-regex"
+    base.matchedRule = "abandoned"
+    base.confidence = 0.91
+    base.evidence.matchedPattern = /(stop|ignore this|never mind|算了|不用了)/.source
+    base.evidence.matchedSnippet = pickSnippet(tail, /(stop|ignore this|never mind|算了|不用了)/i)
+    return options.includeDiagnostics ? base : base.label
   }
   if (messages.length <= 3) {
-    return "abandoned"
+    base.label = "abandoned"
+    base.source = "heuristic"
+    base.matchedRule = "session-length"
+    base.confidence = 0.6
+    return options.includeDiagnostics ? base : base.label
   }
-  return "partial"
+  base.label = "partial"
+  base.source = "heuristic"
+  base.matchedRule = "default-tail"
+  base.confidence = 0.55
+  base.evidence.matchedSnippet = tail.slice(0, 220)
+  return options.includeDiagnostics ? base : base.label
 }
 
-export function detectFriction(messages) {
+export function detectFriction(messages, options = {}) {
   const events = []
   const fullText = messages.map((m) => m.text).join("\n")
   const tailText = normalizeTextForMatch(fullText)
+
+  function addEvent(type, description, regexOrSnippet, isNoisy = false, matchedPattern) {
+    const evidencePattern = typeof regexOrSnippet === "string" ? null : regexOrSnippet
+    const matchedText =
+      typeof regexOrSnippet === "string" ? regexOrSnippet : pickSnippet(fullText, regexOrSnippet)
+    events.push({
+      type,
+      category: type,
+      description,
+      snippet: matchedText,
+      isNoisy,
+      source: regexOrSnippet ? "content-regex" : "heuristic",
+      matchedPattern: evidencePattern ? evidencePattern.source : null,
+      evidence: {
+        searchWindow: "full-session",
+        matchedText: matchedText,
+      },
+    })
+  }
 
   const repeatedUserMap = new Map()
   for (const message of messages.filter((m) => m.role === "user")) {
@@ -422,65 +618,89 @@ export function detectFriction(messages) {
     if (count >= 2) {
       events.push({
         type: "重复指令",
+        category: "重复指令",
         description: "同一条用户指令在单个 session 中重复出现",
         snippet: text.slice(0, 200),
+        isNoisy: false,
+        source: "message-duplicate",
+        matchedPattern: "duplicate-user-text",
+        evidence: {
+          sessions: count,
+        },
       })
       break
     }
   }
 
   if (/(forgot|you already|as i said|lost context|前面说过|你忘了|上下文丢失|刚才说过)/.test(tailText)) {
-    events.push({
-      type: "上下文丢失",
-      description: "对话中出现了明显的记忆或连续性问题",
-      snippet: pickSnippet(fullText, /(forgot|you already|as i said|lost context|前面说过|你忘了|上下文丢失|刚才说过)/i),
-    })
+    addEvent(
+      "上下文丢失",
+      "对话中出现了明显的记忆或连续性问题",
+      /(forgot|you already|as i said|lost context|前面说过|你忘了|上下文丢失|刚才说过)/i,
+      true,
+    )
   }
 
   if (/(enoent|exception|traceback|tool failed|command not found|permission denied|api error|421|tool error|执行失败|工具失败)/.test(tailText)) {
-    events.push({
-      type: "工具失败",
-      description: "工具或外部命令在执行时出现失败信号",
-      snippet: pickSnippet(fullText, /(enoent|exception|traceback|tool failed|command not found|permission denied|api error|421|tool error|执行失败|工具失败)/i),
-    })
+    addEvent(
+      "工具失败",
+      "工具或外部命令在执行时出现失败信号",
+      /(enoent|exception|traceback|tool failed|command not found|permission denied|api error|421|tool error|执行失败|工具失败)/i,
+      true,
+    )
   }
 
   if (/(that.?s not what i meant|wrong direction|不是这个|方向不对|理解错了|误解)/.test(tailText)) {
-    events.push({
-      type: "误解意图",
-      description: "模型对用户目标的理解方向出现偏差",
-      snippet: pickSnippet(fullText, /(that.?s not what i meant|wrong direction|不是这个|方向不对|理解错了|误解)/i),
-    })
+    addEvent(
+      "误解意图",
+      "模型对用户目标的理解方向出现偏差",
+      /(that.?s not what i meant|wrong direction|不是这个|方向不对|理解错了|误解)/i,
+      true,
+    )
   }
 
   if (/(too much|dont change so much|don't change so much|over-modified|改太多了|别改这么多|范围太大)/.test(tailText)) {
-    events.push({
-      type: "过度修改",
-      description: "模型改动范围超过了用户预期",
-      snippet: pickSnippet(fullText, /(too much|dont change so much|don't change so much|over-modified|改太多了|别改这么多|范围太大)/i),
-    })
+    addEvent(
+      "过度修改",
+      "模型改动范围超过了用户预期",
+      /(too much|dont change so much|don't change so much|over-modified|改太多了|别改这么多|范围太大)/i,
+      true,
+    )
   }
 
   if (/(test failed|compile error|broke the build|generated bug|新 bug|编译不过|测试没过|bug)/.test(tailText)) {
-    events.push({
-      type: "生成 bug",
-      description: "生成内容引发或延续了可见错误",
-      snippet: pickSnippet(fullText, /(test failed|compile error|broke the build|generated bug|新 bug|编译不过|测试没过|bug)/i),
-    })
+    addEvent(
+      "生成 bug",
+      "生成内容引发或延续了可见错误",
+      /(test failed|compile error|broke the build|generated bug|新 bug|编译不过|测试没过|bug)/i,
+      true,
+    )
   }
 
   const correctiveMessages = messages.filter(
     (m) => m.role === "user" && /^(no|not that|still|again|不是|还是|再|不对|错了)/i.test(m.text.trim()),
   )
   if (correctiveMessages.length >= 2) {
-    events.push({
-      type: "反复修正",
-      description: "用户多次对同一方向进行纠偏",
-      snippet: correctiveMessages.slice(0, 2).map((m) => m.text.trim()).join(" | "),
-    })
+    addEvent(
+      "反复修正",
+      "用户多次对同一方向进行纠偏",
+      correctiveMessages.slice(0, 2).map((m) => m.text.trim()).join(" | "),
+      true,
+    )
   }
 
-  return events
+  if (options.includeDiagnostics) {
+    return events
+  }
+
+  return events.map((event) => {
+    const simplified = {
+      type: event.type,
+      description: event.description,
+      snippet: event.snippet,
+    }
+    return simplified
+  })
 }
 
 export function extractRepeatedInstructions(analyzedSessions, minFrequency = 3) {
@@ -489,22 +709,39 @@ export function extractRepeatedInstructions(analyzedSessions, minFrequency = 3) 
     const seenInSession = new Set()
     for (const message of session.messages.filter((m) => m.role === "user")) {
       const normalized = normalizeTextForMatch(message.text)
-      if (normalized.length < 24 || normalized.length > 220) continue
+      if (normalized.length < 12 || normalized.length > 220) continue
       if (/^(thanks|ok|okay|继续|继续吧|好的)$/.test(normalized)) continue
       if (seenInSession.has(normalized)) continue
       seenInSession.add(normalized)
 
       if (!map.has(normalized)) {
-        map.set(normalized, { text: message.text.trim(), count: 0, sessions: [] })
+        map.set(normalized, {
+          text: message.text.trim(),
+          count: 0,
+          sessions: [],
+          evidence: [],
+          evidenceCount: 0,
+        })
       }
       const entry = map.get(normalized)
       entry.count += 1
       entry.sessions.push(session.id)
+      entry.evidence.push({
+        sessionId: session.id,
+        text: message.text.trim(),
+      })
+      entry.evidenceCount += 1
     }
   }
 
   return [...map.values()]
     .filter((item) => item.count >= minFrequency)
+    .map((item) => ({
+      ...item,
+      sessionIDs: Array.from(new Set(item.sessions)),
+      evidence: item.evidence.slice(0, 5),
+      evidenceCount: item.evidence.length,
+    }))
     .sort((a, b) => b.count - a.count)
 }
 
@@ -554,16 +791,65 @@ export function formatPct(numerator, denominator) {
 }
 
 export function formatDateRange(sessions) {
-  const dates = sessions
-    .map((s) => s.updatedAt || s.createdAt)
-    .filter(Boolean)
-    .map((value) => new Date(value))
+  const options = arguments[1] || {}
+  const diagnostics = {
+    totalInputs: 0,
+    parsed: 0,
+    invalid: 0,
+    invalidExamples: [],
+    sourceBreakdown: {},
+  }
+
+  if (!Array.isArray(sessions)) return "unknown"
+
+  const dates = sessions.flatMap((s) => {
+    const candidates = [
+      { source: "updatedAt", value: s.updatedAt },
+      { source: "createdAt", value: s.createdAt },
+    ]
+
+    const selected = []
+    for (const candidate of candidates) {
+      diagnostics.totalInputs += 1
+      diagnostics.sourceBreakdown[candidate.source] = {
+        parsed: (diagnostics.sourceBreakdown[candidate.source]?.parsed || 0) + 0,
+        invalid: (diagnostics.sourceBreakdown[candidate.source]?.invalid || 0) + 0,
+      }
+
+      const value = candidate.value
+      const date = new Date(value)
+      if (value && !Number.isNaN(date.getTime())) {
+        diagnostics.parsed += 1
+        diagnostics.sourceBreakdown[candidate.source].parsed += 1
+        selected.push(date)
+      } else {
+        diagnostics.invalid += 1
+        diagnostics.sourceBreakdown[candidate.source].invalid += 1
+        if (diagnostics.invalidExamples.length < 5) {
+          diagnostics.invalidExamples.push({
+            source: candidate.source,
+            raw: String(value ?? "").slice(0, 80),
+          })
+        }
+      }
+    }
+    return selected
+  })
     .sort((a, b) => a - b)
 
   if (!dates.length) return "unknown"
   const start = dates[0].toISOString().slice(0, 10)
   const end = dates[dates.length - 1].toISOString().slice(0, 10)
-  return `${start} ~ ${end}`
+  const range = `${start} ~ ${end}`
+  if (!options.includeDiagnostics) return range
+
+  return {
+    value: range,
+    diagnostics: {
+      ...diagnostics,
+      sampleSize: sessions.length,
+    },
+  }
 }
 
 export function byHourHeatmap(sessions) {

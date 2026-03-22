@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import {
   ANALYSIS_DIR,
+  OUTPUT_ROOT,
   ROOT,
   classifyOutcome,
   classifyTask,
@@ -31,6 +33,109 @@ import {
   topN,
 } from "./contextos-lib.mjs"
 
+function toISOStringSafe(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
+function inferAgent(messages, fallbackAgent) {
+  const candidateLog = []
+
+  const addCandidate = (source, agent, reason) => {
+    if (!agent) return
+    const value = String(agent).trim()
+    if (!value) return
+    candidateLog.push({ source, reason, value })
+    if (value && value !== "tool") {
+      return value
+    }
+    return null
+  }
+
+  const fromSession = addCandidate("session-list", fallbackAgent, "session.agent")
+  if (fromSession) {
+    return {
+      value: fromSession,
+      source: "session-list",
+      evidence: candidateLog,
+    }
+  }
+
+  for (const message of messages) {
+    const candidates = [
+      ["message.agent", message?.agent, "message.agent"],
+      ["message.raw.agent", message?.raw?.agent, "message.raw.agent"],
+      ["message.raw.info.agent", message?.raw?.info?.agent, "message.raw.info.agent"],
+      ["message.mode", message?.raw?.mode, "message.raw.mode"],
+      ["message.raw.info.mode", message?.raw?.info?.mode, "message.raw.info.mode"],
+    ]
+
+    for (const [source, value, reason] of candidates) {
+      const found = addCandidate(source, value, reason)
+      if (found) {
+        return {
+          value: found,
+          source,
+          evidence: candidateLog,
+        }
+      }
+    }
+  }
+
+  return {
+    value: "unknown-agent",
+    source: "fallback",
+    evidence: candidateLog,
+  }
+}
+
+function inferDate(valueSources, label, options = {}) {
+  const diagnostics = {
+    label,
+    attempts: [],
+    parsed: 0,
+    invalid: 0,
+    sampledValues: [],
+    sampleLimit: options.sampleLimit ?? 6,
+  }
+
+  for (const candidate of valueSources) {
+    const raw = candidate.value
+    const parsed = toISOStringSafe(raw)
+    const entry = {
+      source: candidate.source,
+      raw: raw == null ? null : String(raw).slice(0, 200),
+      parsed: !!parsed,
+      candidate: candidate.label || candidate.source,
+    }
+    diagnostics.attempts.push(entry)
+
+    if (parsed) {
+      diagnostics.parsed += 1
+      return {
+        value: parsed,
+        selectedSource: candidate.source,
+        selectedCandidate: candidate.label || candidate.source,
+        diagnostics,
+      }
+    }
+
+    diagnostics.invalid += 1
+    if (diagnostics.sampledValues.length < diagnostics.sampleLimit) {
+      diagnostics.sampledValues.push(entry)
+    }
+  }
+
+  return {
+    value: null,
+    selectedSource: null,
+    selectedCandidate: null,
+    diagnostics,
+  }
+}
+
 function analyzeSession(session, exportData) {
   const messages = extractMessages(exportData)
     .map((msg) => ({
@@ -39,29 +144,130 @@ function analyzeSession(session, exportData) {
     }))
     .filter((msg) => msg.text || msg.name)
 
-  const task = classifyTask(messages)
-  const outcome = classifyOutcome(messages)
-  const frictions = detectFriction(messages)
+  const taskDiagnostics = classifyTask(messages, { includeDiagnostics: true })
+  const outcomeDiagnostics = classifyOutcome(messages, { includeDiagnostics: true })
+  const task = taskDiagnostics.label
+  const outcome = outcomeDiagnostics.label
+  const frictions = detectFriction(messages, { includeDiagnostics: true })
   const toolNames = extractToolNames(messages)
   const totalChars = messages.reduce((sum, msg) => sum + msg.text.length, 0)
   const userMessages = messages.filter((msg) => msg.role === "user").length
+  const inferredAgent = inferAgent(messages, session.agent)
+  const inferredCreatedAt = inferDate(
+    [
+      { source: "session.createdAt", value: session.createdAt, label: "session.createdAt" },
+      { source: "export.info.time.created", value: exportData?.info?.time?.created, label: "export.info.time.created" },
+      { source: "export.createdAt", value: exportData?.createdAt, label: "export.createdAt" },
+      { source: "export.info.time.created.fallback", value: exportData?.info?.time?.createdAt, label: "export.info.time.createdAt" },
+      { source: "session.raw.createdAt", value: exportData?.raw?.createdAt, label: "export.raw.createdAt" },
+    ],
+    "createdAt",
+  )
+  const inferredUpdatedAt = inferDate(
+    [
+      { source: "session.updatedAt", value: session.updatedAt, label: "session.updatedAt" },
+      { source: "export.info.time.updated", value: exportData?.info?.time?.updated, label: "export.info.time.updated" },
+      { source: "export.info.time.updatedAt", value: exportData?.info?.time?.updatedAt, label: "export.info.time.updatedAt" },
+      { source: "export.updatedAt", value: exportData?.updatedAt, label: "export.updatedAt" },
+      { source: "session.raw.updatedAt", value: exportData?.raw?.updatedAt, label: "export.raw.updatedAt" },
+    ],
+    "updatedAt",
+  )
+  const inferredProject = session.project || exportData?.info?.directory || exportData?.directory || "unknown-project"
 
   return {
     ...session,
-    messages,
+    agent: inferredAgent.value,
+    project: inferredProject,
+    createdAt: inferredCreatedAt.value,
+    updatedAt: inferredUpdatedAt.value,
+    createdAtDiagnostics: inferredCreatedAt.diagnostics,
+    updatedAtDiagnostics: inferredUpdatedAt.diagnostics,
+    createdAtSource: inferredCreatedAt.selectedSource,
+    updatedAtSource: inferredUpdatedAt.selectedSource,
     task,
     outcome,
+    taskDiagnostics,
+    outcomeDiagnostics,
+    agentSource: inferredAgent.source,
+    agentEvidence: inferredAgent.evidence,
+    messages,
     frictions,
+    frictionCount: frictions.length,
+    noisyFrictionCount: frictions.filter((entry) => entry.isNoisy).length,
     toolNames,
     totalChars,
     userMessages,
   }
 }
 
+function parsePositiveInt(raw, fallback) {
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
+}
+
+function collectAnalyzedSessions(sessions, analyzeFn, options = {}) {
+  const maxAttempts = parsePositiveInt(options.maxAttempts, sessions.length || 0)
+  const minMessages = parsePositiveInt(options.minMessages, 3)
+  const exportTimeoutMs = parsePositiveInt(options.exportTimeoutMs, 8000)
+  const shouldLogSkips = options.shouldLogSkips !== false
+
+  const analyzed = []
+  const skipped = []
+
+  let attempts = 0
+  for (const session of sessions) {
+    if (attempts >= maxAttempts) {
+      break
+    }
+
+    attempts += 1
+    try {
+      const exportData = exportSession(session.id, { timeoutMs: exportTimeoutMs })
+      const result = analyzeFn(session, exportData)
+      if (result.messages.length >= minMessages) {
+        analyzed.push(result)
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      skipped.push({ id: session.id, reason })
+      if (shouldLogSkips) {
+        const reasonPreview = reason ? reason.split("\n")[0].slice(0, 160) : "unknown"
+        console.warn(`Skipped session ${session.id}: ${reasonPreview}`)
+      }
+    }
+  }
+
+  return { analyzed, skipped, attempts }
+}
+
 function aggregateInsights(allSessions, analyzedSessions, days) {
   const totalMessages = analyzedSessions.reduce((sum, session) => sum + session.messages.length, 0)
+  const analyzedById = new Map(analyzedSessions.map((session) => [session.id, session]))
+  const enrichedSessions = allSessions.map((session) => {
+    const analyzed = analyzedById.get(session.id)
+    if (!analyzed) return session
+    return {
+      ...session,
+      agent: session.agent || analyzed.agent || "unknown-agent",
+      project: session.project || analyzed.project || "unknown-project",
+      createdAt: session.createdAt || analyzed.createdAt,
+      updatedAt: session.updatedAt || analyzed.updatedAt,
+      createdAtSource: session.createdAtSource || analyzed.createdAtSource,
+      updatedAtSource: session.updatedAtSource || analyzed.updatedAtSource,
+      agentEvidence: analyzed.agentEvidence,
+      createdAtDiagnostics: analyzed.createdAtDiagnostics,
+      updatedAtDiagnostics: analyzed.updatedAtDiagnostics,
+      taskDiagnostics: analyzed.taskDiagnostics,
+      outcomeDiagnostics: analyzed.outcomeDiagnostics,
+    }
+  })
+
+  const dateRange = formatDateRange(allSessions, { includeDiagnostics: true })
+  const dateRangeValue = typeof dateRange === "string" ? dateRange : dateRange.value
+
   const activeDays = new Set(
-    allSessions
+    enrichedSessions
       .map((session) => new Date(session.updatedAt || session.createdAt || Date.now()).toISOString().slice(0, 10))
       .filter(Boolean),
   ).size
@@ -69,24 +275,41 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
   const frictionEntries = analyzedSessions.flatMap((session) =>
     session.frictions.map((friction) => ({ ...friction, sessionID: session.id, sessionTitle: session.title })),
   )
+  const noisyFrictionEntries = frictionEntries.filter((entry) => entry.isNoisy)
   const frictionCounts = countBy(frictionEntries, (entry) => entry.type).sort((a, b) => b.count - a.count)
+  const noisyFrictionCounts = countBy(noisyFrictionEntries, (entry) => entry.type).sort((a, b) => b.count - a.count)
   const taskCounts = countBy(analyzedSessions, (session) => session.task).sort((a, b) => b.count - a.count)
   const outcomeCounts = countBy(analyzedSessions, (session) => session.outcome).sort((a, b) => b.count - a.count)
-  const agentCounts = countBy(allSessions, (session) => session.agent || "unknown-agent").sort((a, b) => b.count - a.count)
+  const agentCounts = countBy(enrichedSessions, (session) => session.agent || "unknown-agent").sort((a, b) => b.count - a.count)
+  const taskSourceCounts = countBy(analyzedSessions, (session) => session.taskDiagnostics?.source || "fallback").sort(
+    (a, b) => b.count - a.count,
+  )
+  const outcomeSourceCounts = countBy(analyzedSessions, (session) => session.outcomeDiagnostics?.source || "fallback").sort(
+    (a, b) => b.count - a.count,
+  )
+  const agentSourceCounts = countBy(analyzedSessions, (session) => session.agentSource || "fallback").sort((a, b) => b.count - a.count)
+  const createdAtParseSourceCounts = countBy(
+    analyzedSessions,
+    (session) => session.createdAtSource || session.createdAtDiagnostics?.attempts?.[0]?.source || "unknown",
+  ).sort((a, b) => b.count - a.count)
+  const updatedAtParseSourceCounts = countBy(
+    analyzedSessions,
+    (session) => session.updatedAtSource || session.updatedAtDiagnostics?.attempts?.[0]?.source || "unknown",
+  ).sort((a, b) => b.count - a.count)
 
   const toolCounts = countBy(
     analyzedSessions.flatMap((session) => session.toolNames),
     (tool) => tool,
   ).sort((a, b) => b.count - a.count)
 
-  const repeatedInstructions = extractRepeatedInstructions(analyzedSessions, 3)
+  const repeatedInstructions = extractRepeatedInstructions(analyzedSessions, 2)
   const achievedCount = analyzedSessions.filter((session) => session.outcome === "achieved").length
   const frictionSessionCount = analyzedSessions.filter((session) => session.frictions.length > 0).length
   const avgSessionLength = analyzedSessions.length
     ? Math.round(totalMessages / analyzedSessions.length)
     : 0
 
-  const topProjects = summarizeProjects(allSessions)
+  const topProjects = summarizeProjects(enrichedSessions)
   const highLeverageRules = repeatedInstructions.slice(0, 5)
   const topFrictions = frictionCounts.slice(0, 3)
   const whatIsWorking = buildWhatWorks(analyzedSessions, taskCounts, outcomeCounts)
@@ -111,7 +334,16 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
       completionRate: formatPct(achievedCount, analyzedSessions.length),
       averageSessionLength: avgSessionLength,
       frictionRate: formatPct(frictionSessionCount, analyzedSessions.length),
-      dateRange: formatDateRange(allSessions),
+      dateRange: dateRangeValue,
+      diagnostics: {
+        dateRange,
+        taskSources: taskSourceCounts,
+        outcomeSources: outcomeSourceCounts,
+        agentSources: agentSourceCounts,
+        createdAtSources: createdAtParseSourceCounts,
+        updatedAtSources: updatedAtParseSourceCounts,
+        noisyFrictionRate: formatPct(noisyFrictionEntries.length, analyzedSessions.length),
+      },
       dailyAverageSessions: activeDays ? (allSessions.length / activeDays).toFixed(1) : "0.0",
     },
     counts: {
@@ -120,10 +352,11 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
       frictions: frictionCounts,
       agents: agentCounts,
       tools: toolCounts,
+      frictionsNoisy: noisyFrictionCounts,
     },
     visuals: {
-      heatmap: byHourHeatmap(allSessions),
-      dailyActivity: dailyActivity(allSessions),
+      heatmap: byHourHeatmap(enrichedSessions),
+      dailyActivity: dailyActivity(enrichedSessions),
       satisfactionTrend: satisfactionTrend(analyzedSessions),
     },
     repeatedInstructions,
@@ -132,17 +365,25 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
       whatIsWorking,
       quickWins,
       patchCandidates,
+      frictionNoisyEntries: noisyFrictionEntries.slice(0, 12),
     },
     sessions: analyzedSessions.map((session) => ({
       id: session.id,
       title: session.title,
       task: session.task,
       outcome: session.outcome,
-      frictionCount: session.frictions.length,
+      frictionCount: session.frictionCount,
+      noisyFrictionCount: session.noisyFrictionCount,
       messageCount: session.messages.length,
       totalChars: session.totalChars,
       project: session.project,
       updatedAt: session.updatedAt || session.createdAt,
+      agent: session.agent,
+      agentSource: session.agentSource,
+      taskDiagnostics: session.taskDiagnostics,
+      outcomeDiagnostics: session.outcomeDiagnostics,
+      createdAtDiagnostics: session.createdAtDiagnostics,
+      updatedAtDiagnostics: session.updatedAtDiagnostics,
     })),
   }
 }
@@ -279,6 +520,104 @@ function renderPatchBlock(report) {
   return `<pre><code>${htmlEscape(block)}</code></pre>`
 }
 
+function renderDiagnosticsSourceCounts(entries) {
+  const total = entries.reduce((sum, item) => sum + item.count, 0)
+  if (!entries.length || !total) {
+    return "<p>暂无可计算的来源诊断统计。</p>"
+  }
+
+  return `<ul>${entries
+    .slice(0, 8)
+    .map(
+      (item) =>
+        `<li><strong>${htmlEscape(item.key)}</strong>：${item.count} 次 (${Math.round(
+          (item.count / total) * 100,
+        )}%)</li>`,
+    )
+    .join("")}</ul>`
+}
+
+function renderSessionDiagnostics(report) {
+  const sessions = report.sessions
+    .filter(
+      (session) =>
+        session.taskDiagnostics ||
+        session.outcomeDiagnostics ||
+        session.createdAtDiagnostics ||
+        session.updatedAtDiagnostics ||
+        session.agentEvidence?.length,
+    )
+    .slice(0, 8)
+
+  if (!sessions.length) {
+    return "<p>当前样本未附带可回放的诊断字段。</p>"
+  }
+
+  return sessions
+    .map((session) => {
+      const taskRule = session.taskDiagnostics?.matchedRule || "-"
+      const outcomeRule = session.outcomeDiagnostics?.matchedRule || "-"
+      const taskSnippet = session.taskDiagnostics?.evidence?.matchedSnippet || session.taskDiagnostics?.evidence?.rawText || ""
+      const outcomeSnippet =
+        session.outcomeDiagnostics?.evidence?.matchedSnippet || session.outcomeDiagnostics?.evidence?.rawText || ""
+      const taskSource = session.taskDiagnostics?.source || "fallback"
+      const outcomeSource = session.outcomeDiagnostics?.source || "fallback"
+      const agentLine = `${htmlEscape(session.agent)} · source=${htmlEscape(session.agentSource || "fallback")}`
+      const dateLine = `created=${htmlEscape(session.createdAtSource || "unknown")}, updated=${htmlEscape(session.updatedAtSource || "unknown")}`
+
+      return `
+        <details class="case-card">
+          <summary>${htmlEscape(session.title || "Session")}</summary>
+          <p>任务：${htmlEscape(session.task)}（规则=${htmlEscape(taskRule)} / 来源=${htmlEscape(taskSource)}）</p>
+          <p>结果：${htmlEscape(session.outcome)}（规则=${htmlEscape(outcomeRule)} / 来源=${htmlEscape(outcomeSource)}）</p>
+          <p>Agent：${agentLine}</p>
+          <p>时间来源：${dateLine}</p>
+          <p>任务证据：<code>${htmlEscape(taskSnippet.slice(0, 200))}</code></p>
+          <p>结果证据：<code>${htmlEscape(outcomeSnippet.slice(0, 200))}</code></p>
+        </details>
+      `
+    })
+    .join("")
+}
+
+function renderDiagnosticsPanel(report) {
+  const meta = report.meta.diagnostics || {}
+  const dateRangeDiagnostics =
+    typeof meta.dateRange === "object" && meta.dateRange
+      ? `样本输入 ${meta.dateRange.totalInputs || 0} 条，有效 ${meta.dateRange.parsed || 0} 条，失败 ${
+          meta.dateRange.invalid || 0
+        } 条。`
+      : "时间范围解析来自历史兼容路径，未开启详细诊断。"
+  const noisyFrictionRate = meta.noisyFrictionRate || "0%"
+
+  return `
+    <div class="stack">
+      <p>无噪声摩擦比例：${htmlEscape(noisyFrictionRate)}</p>
+      <p>${htmlEscape(dateRangeDiagnostics)}</p>
+      <div>
+        <h3>任务归类来源</h3>
+        ${renderDiagnosticsSourceCounts(meta.taskSources || [])}
+      </div>
+      <div>
+        <h3>结果归类来源</h3>
+        ${renderDiagnosticsSourceCounts(meta.outcomeSources || [])}
+      </div>
+      <div>
+        <h3>Agent 来源</h3>
+        ${renderDiagnosticsSourceCounts(meta.agentSources || [])}
+      </div>
+      <div>
+        <h3>createdAt 解析来源</h3>
+        ${renderDiagnosticsSourceCounts(meta.createdAtSources || [])}
+      </div>
+      <div>
+        <h3>updatedAt 解析来源</h3>
+        ${renderDiagnosticsSourceCounts(meta.updatedAtSources || [])}
+      </div>
+    </div>
+  `
+}
+
 function renderDeepSuggestions(report) {
   const items = [
     "为高频重复工作流补一条专门 skill，而不是每次重新解释。",
@@ -318,13 +657,23 @@ function fillTemplate(template, report) {
     "__QUICK_WINS__": renderQuickWins(report),
     "__AGENTS_MD_SUGGESTIONS__": renderPatchBlock(report),
     "__DEEP_SUGGESTIONS__": renderDeepSuggestions(report),
+    "__DIAGNOSTICS_PANEL__": renderDiagnosticsPanel(report),
+    "__DIAGNOSTIC_SESSIONS__": renderSessionDiagnostics(report),
     "__GENERATED_AT__": new Date().toLocaleString(),
   }
 
-  return Object.entries(replacements).reduce(
+  const output = Object.entries(replacements).reduce(
     (output, [needle, value]) => output.replaceAll(needle, value),
     template,
   )
+
+  const leftovers = output.match(/__[A-Z0-9_]+__/g)
+  if (leftovers?.length) {
+    const uniqueLeftovers = [...new Set(leftovers)]
+    throw new Error(`Template contains unresolved placeholders: ${uniqueLeftovers.join(", ")}`)
+  }
+
+  return output
 }
 
 function printSummary(report, outputPath) {
@@ -345,27 +694,38 @@ async function main() {
   const args = readArgs()
   const days = Number(args.days || 30)
   const maxCount = Number(args["max-count"] || 120)
-  const outputPath = path.join(ROOT, args.output || "insights-report.html")
+  const maxExportAttempts = parsePositiveInt(args["max-export-attempts"], 24)
+  const exportTimeoutMs = parsePositiveInt(args["export-timeout-ms"], 8000)
+  const outputPath = path.isAbsolute(args.output || "")
+    ? args.output
+    : path.join(OUTPUT_ROOT, args.output || "insights-report.html")
   const templatePath = path.join(ROOT, "templates", "report-template.html")
 
   const allRecentSessions = filterSessionsByDays(listSessions({ maxCount }), days)
   const sampledSessions = sampleSessions(allRecentSessions, 30)
 
-  const analyzed = []
-  for (const session of sampledSessions) {
-    try {
-      const exportData = exportSession(session.id)
-      const analyzedSession = analyzeSession(session, exportData)
-      if (analyzedSession.messages.length >= 3) {
-        analyzed.push(analyzedSession)
-      }
-    } catch (error) {
-      console.warn(`Skipped session ${session.id}: ${error.message}`)
-    }
+  const { analyzed, skipped, attempts } = collectAnalyzedSessions(sampledSessions, analyzeSession, {
+    maxAttempts: maxExportAttempts,
+    minMessages: 3,
+    exportTimeoutMs,
+  })
+
+  if (!skipped.length && !analyzed.length) {
+    throw new Error("No sessions could be analyzed. Check OpenCode session export data shape and CLI availability.")
   }
 
-  if (!allRecentSessions.length || !analyzed.length) {
-    throw new Error("No recent sessions could be analyzed. Make sure OpenCode has local session history and that `opencode export <sessionID>` works.")
+  if (!analyzed.length) {
+    const summary = skipped
+      .slice(0, 4)
+      .map((item) => `${item.id}: ${item.reason.split("\n")[0]}`)
+      .join(" | ")
+    throw new Error(
+      `No recent sessions could be analyzed after ${attempts} export attempts; ${skipped.length} sessions were skipped. ${summary ? `Examples: ${summary}` : ""}`,
+    )
+  }
+
+  if (!allRecentSessions.length) {
+    throw new Error("No sessions found in the selected time window. Try a larger --days value or check local session history.")
   }
 
   const report = aggregateInsights(allRecentSessions, analyzed, days)
@@ -377,7 +737,19 @@ async function main() {
   printSummary(report, outputPath)
 }
 
-main().catch((error) => {
-  console.error(error.message)
-  process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error.message)
+    process.exit(1)
+  })
+}
+
+export {
+  inferDate,
+  inferAgent,
+  analyzeSession,
+  aggregateInsights,
+  renderDiagnosticsPanel,
+  renderSessionDiagnostics,
+  fillTemplate,
+}

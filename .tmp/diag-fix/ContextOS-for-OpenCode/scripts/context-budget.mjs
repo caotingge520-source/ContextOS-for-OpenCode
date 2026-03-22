@@ -14,42 +14,6 @@ import {
   saveJson,
 } from "./contextos-lib.mjs"
 
-function parsePositiveInt(raw, fallback) {
-  const value = Number(raw)
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
-}
-
-function collectSessionWeights(sessions, options = {}) {
-  const maxAttempts = parsePositiveInt(options.maxAttempts, sessions.length || 0)
-  const exportTimeoutMs = parsePositiveInt(options.exportTimeoutMs, 8000)
-  const shouldLogSkips = options.shouldLogSkips !== false
-
-  const analyzed = []
-  const skipped = []
-  let attempts = 0
-
-  for (const session of sessions) {
-    if (attempts >= maxAttempts) {
-      break
-    }
-
-    attempts += 1
-    try {
-      const exportData = exportSession(session.id, { timeoutMs: exportTimeoutMs })
-      analyzed.push(analyzeSessionWeight(session, exportData))
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      skipped.push({ id: session.id, reason })
-      if (shouldLogSkips) {
-        const reasonPreview = reason ? reason.split("\n")[0].slice(0, 160) : "unknown"
-        console.warn(`Skipped session ${session.id}: ${reasonPreview}`)
-      }
-    }
-  }
-
-  return { analyzed, skipped, attempts }
-}
-
 function analyzeSessionWeight(session, exportData) {
   const messages = extractMessages(exportData)
   const totalChars = messages.reduce((sum, msg) => sum + msg.text.length, 0)
@@ -126,25 +90,21 @@ async function main() {
   const args = readArgs()
   const days = Number(args.days || 14)
   const maxCount = Number(args["max-count"] || 80)
-  const maxExportAttempts = parsePositiveInt(args["max-export-attempts"], 24)
-  const exportTimeoutMs = parsePositiveInt(args["export-timeout-ms"], 8000)
 
   const sessions = sampleSessions(filterSessionsByDays(listSessions({ maxCount }), days), 20)
-  const { analyzed, skipped, attempts } = collectSessionWeights(sessions, {
-    maxAttempts: maxExportAttempts,
-    exportTimeoutMs,
-  })
+  const analyzed = []
 
-  if (!skipped.length && !analyzed.length) {
-    throw new Error("No sessions available for context budget analysis.")
+  for (const session of sessions) {
+    try {
+      const exportData = exportSession(session.id)
+      analyzed.push(analyzeSessionWeight(session, exportData))
+    } catch (error) {
+      console.warn(`Skipped session ${session.id}: ${error.message}`)
+    }
   }
 
   if (!analyzed.length) {
-    const summary = skipped
-      .slice(0, 4)
-      .map((item) => `${item.id}: ${item.reason.split("\n")[0]}`)
-      .join(" | ")
-    throw new Error(`No sessions could be analyzed after ${attempts} export attempts; ${skipped.length} sessions were skipped. ${summary ? `Examples: ${summary}` : ""}`)
+    throw new Error("No sessions available for context budget analysis.")
   }
 
   const repeatedInstructions = extractRepeatedInstructions(analyzed, 2)

@@ -65,16 +65,6 @@ node scripts/context-budget.mjs --days 14
 node scripts/rescue-session.mjs --max-count 20
 ```
 
-Optional flags (for stale/slow session exports):
-
-```bash
-node scripts/generate-insights.mjs --days 30 --max-export-attempts 24 --export-timeout-ms 8000
-node scripts/context-budget.mjs --days 14 --max-export-attempts 24 --export-timeout-ms 8000
-```
-
-- `--max-export-attempts`: maximum number of sampled sessions to attempt export.
-- `--export-timeout-ms`: per-export timeout in milliseconds.
-
 ## What gets written
 
 - `insights-report.html`
