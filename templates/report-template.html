@@ -244,6 +244,32 @@
       </div>
     </section>
 
+    <section class="grid-3">
+      <div class="panel">
+        <h2>任务身份：领域分布</h2>
+        <div id="taskIdentityDomains" class="bars chart"></div>
+      </div>
+      <div class="panel">
+        <h2>任务身份：作用域分布</h2>
+        <div id="taskIdentityScopes" class="bars chart"></div>
+      </div>
+      <div class="panel">
+        <h2>任务身份：持久化分层</h2>
+        <div id="taskIdentityDurabilities" class="bars chart"></div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>任务身份：对象类型 Top</h2>
+        <div id="taskIdentityObjectTypes" class="bars chart"></div>
+      </div>
+      <div class="panel">
+        <h2>任务身份：对象名称 Top</h2>
+        <div id="taskIdentityObjectNames" class="bars chart"></div>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>摩擦分析</h2>
       __FRICTION_ANALYSIS__
@@ -294,6 +320,11 @@
     const TOOLS = __TOOL_USAGE_DATA__;
     const TASKS = __TASK_DISTRIBUTION_DATA__;
     const AGENTS = __AGENT_DISTRIBUTION_DATA__;
+    const TASK_IDENTITY_DOMAINS = __TASK_IDENTITY_DOMAIN_DISTRIBUTION_DATA__;
+    const TASK_IDENTITY_SCOPES = __TASK_IDENTITY_SCOPE_DISTRIBUTION_DATA__;
+    const TASK_IDENTITY_DURABILITIES = __TASK_IDENTITY_DURABILITY_DISTRIBUTION_DATA__;
+    const TASK_IDENTITY_OBJECT_TYPES = __TASK_IDENTITY_OBJECT_TYPE_DISTRIBUTION_DATA__;
+    const TASK_IDENTITY_OBJECT_NAMES = __TASK_IDENTITY_OBJECT_NAME_DISTRIBUTION_DATA__;
 
     function renderBars(targetId, entries, labelKey) {
       const target = document.getElementById(targetId);
@@ -351,6 +382,11 @@
     renderBars("tools", TOOLS, "tool");
     renderBars("tasks", TASKS, "type");
     renderBars("agents", AGENTS, "agent");
+    renderBars("taskIdentityDomains", TASK_IDENTITY_DOMAINS, "domain");
+    renderBars("taskIdentityScopes", TASK_IDENTITY_SCOPES, "scope");
+    renderBars("taskIdentityDurabilities", TASK_IDENTITY_DURABILITIES, "durability");
+    renderBars("taskIdentityObjectTypes", TASK_IDENTITY_OBJECT_TYPES, "objectType");
+    renderBars("taskIdentityObjectNames", TASK_IDENTITY_OBJECT_NAMES, "objectName");
   </script>
 </body>
 </html>

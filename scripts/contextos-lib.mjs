@@ -10,6 +10,9 @@ export const OUTPUT_ROOT = process.env.CONTEXTOS_OUTPUT_DIR
 export const ANALYSIS_DIR = path.join(OUTPUT_ROOT, ".contextos", "analysis")
 export const RESCUE_DIR = path.join(OUTPUT_ROOT, ".contextos", "rescue")
 export const GUARD_PATH = path.join(OUTPUT_ROOT, ".contextos", "guard", "SESSION_GUARD.md")
+export const TASKS_DIR = path.join(OUTPUT_ROOT, ".contextos", "tasks")
+export const CURRENT_TASK_YAML_PATH = path.join(TASKS_DIR, "current-task.yaml")
+export const CURRENT_TASK_MD_PATH = path.join(TASKS_DIR, "current-task.md")
 
 export function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true })
@@ -466,6 +469,361 @@ export function countBy(items, selector) {
     map.set(key, (map.get(key) || 0) + 1)
   }
   return [...map.entries()].map(([key, count]) => ({ key, count }))
+}
+
+const TASK_IDENTITY_ENUMS = {
+  domain: new Set(["project", "capability", "platform", "preference"]),
+  scope: new Set(["L1", "L2", "L3"]),
+  durability: new Set(["session", "candidate", "durable"]),
+}
+
+const CAPABILITY_UNIT_KEYWORDS = [
+  "insights",
+  "context-budget",
+  "router-lite",
+  "router",
+  "rescue-session",
+  "rescue",
+  "session-guard",
+  "guard",
+  "friction-detector",
+  "task-identity-routing",
+]
+
+function asMessageText(entry) {
+  if (!entry) return ""
+  if (typeof entry === "string") return entry
+  if (typeof entry.text === "string") return entry.text
+  return ""
+}
+
+function clampConfidence(value) {
+  if (!Number.isFinite(value)) return 0.5
+  if (value < 0) return 0
+  if (value > 1) return 1
+  return Number(value.toFixed(2))
+}
+
+function detectCapabilityUnit(text, activeFiles = []) {
+  const byKeyword = CAPABILITY_UNIT_KEYWORDS.find((keyword) => text.includes(keyword))
+  if (byKeyword) return byKeyword
+
+  const byPath = activeFiles
+    .map((item) => String(item || "").toLowerCase())
+    .find((file) =>
+      [
+        ["generate-insights", "insights"],
+        ["context-budget", "context-budget"],
+        ["rescue-session", "rescue-session"],
+        ["contextos-guard", "session-guard"],
+        ["session-guard", "session-guard"],
+      ].some(([needle]) => file.includes(needle)),
+    )
+
+  if (!byPath) return null
+  if (byPath.includes("generate-insights")) return "insights"
+  if (byPath.includes("context-budget")) return "context-budget"
+  if (byPath.includes("rescue-session")) return "rescue-session"
+  return "session-guard"
+}
+
+export function inferTaskIdentityRouting(context = {}) {
+  const userRequest = String(context.userRequest || "")
+  const recentMessages = Array.isArray(context.recentMessages) ? context.recentMessages : []
+  const activeFiles = Array.isArray(context.activeFiles) ? context.activeFiles.filter(Boolean) : []
+  const recentCommands = Array.isArray(context.recentCommands) ? context.recentCommands.filter(Boolean) : []
+  const cwd = String(context.cwd || context.projectPath || ROOT)
+
+  const evidence = []
+  const mergedText = normalizeTextForMatch([
+    userRequest,
+    ...recentMessages.slice(-12).map(asMessageText),
+    ...recentCommands,
+    ...activeFiles,
+  ].join("\n"))
+
+  const scores = {
+    project: 0,
+    capability: 0,
+    platform: 0,
+    preference: 0,
+  }
+
+  if (/(当前项目|本项目|repo|repository|业务|feature|模块|代码库|project)/.test(mergedText)) {
+    scores.project += 2
+    evidence.push("请求/上下文直接指向当前项目或仓库")
+  }
+
+  const capabilityUnit = detectCapabilityUnit(mergedText, activeFiles)
+  if (capabilityUnit) {
+    scores.capability += 3
+    evidence.push(`识别到稳定能力单元: ${capabilityUnit}`)
+  }
+
+  if (/(opencode|cli|plugin|mcp|agent|平台|工具链|command|skill)/.test(mergedText)) {
+    scores.platform += 2
+    evidence.push("包含平台/工具链信号（CLI/Plugin/Agent）")
+  }
+
+  if (/(偏好|风格|方法|workflow|习惯|规则沉淀|约束|method|preference)/.test(mergedText)) {
+    scores.preference += 2
+    evidence.push("包含偏好/方法论信号")
+  }
+
+  if (activeFiles.some((item) => String(item).includes("scripts/"))) {
+    scores.project += 1
+    evidence.push("活跃文件位于项目脚本目录")
+  }
+
+  if (recentCommands.some((item) => /insights|context-budget|rescue-session|guard-refresh|task-refresh/i.test(String(item)))) {
+    scores.capability += 1
+    evidence.push("最近命令命中 ContextOS 能力入口")
+  }
+
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1])
+  let domain = ranked[0]?.[0] || "project"
+  const topScore = ranked[0]?.[1] || 0
+  const secondScore = ranked[1]?.[1] || 0
+  if (!TASK_IDENTITY_ENUMS.domain.has(domain)) {
+    domain = "project"
+  }
+
+  let objectType = "current project"
+  let objectName = path.basename(cwd || ROOT) || "current-project"
+
+  if (domain === "capability") {
+    objectType = "named capability unit"
+    objectName = capabilityUnit || "contextos-capability"
+  } else if (domain === "platform") {
+    objectType = "platform/global user method"
+    objectName = "opencode-platform"
+  } else if (domain === "preference") {
+    objectType = "platform/global user method"
+    objectName = "user-method"
+  }
+
+  let scope = "L1"
+  if (domain === "capability" && capabilityUnit) {
+    scope = "L2"
+  } else if (domain === "platform" || domain === "preference") {
+    scope = "L3"
+  }
+  if (!TASK_IDENTITY_ENUMS.scope.has(scope)) {
+    scope = "L1"
+  }
+
+  const durableSignals = Number(Boolean(context.repeatedInstructionCount))
+    + Number(/沉淀|durable|长期|跨项目复用|规则/.test(mergedText))
+    + Number(domain === "platform" || domain === "preference")
+  const sessionSignals = Number(/临时|本轮|当前会话|just this session/.test(mergedText))
+    + Number(scope === "L1")
+
+  let durability = "candidate"
+  if (durableSignals >= 2 && topScore >= 2) {
+    durability = "durable"
+    evidence.push("存在跨会话/跨项目沉淀信号，判定 durable")
+  } else if (sessionSignals >= 2 && topScore <= 2) {
+    durability = "session"
+    evidence.push("主要是当前会话上下文，判定 session")
+  } else {
+    evidence.push("证据不足以直接 durable，按 candidate 处理")
+  }
+  if (!TASK_IDENTITY_ENUMS.durability.has(durability)) {
+    durability = "candidate"
+  }
+
+  const confidence = clampConfidence(
+    0.45
+      + Math.min(0.35, topScore * 0.12)
+      + Math.min(0.1, (topScore - secondScore) * 0.05)
+      + Math.min(0.1, evidence.length * 0.015),
+  )
+
+  return {
+    domain,
+    object_type: objectType,
+    object_name: objectName,
+    scope,
+    durability,
+    confidence,
+    evidence: evidence.slice(0, 8),
+  }
+}
+
+function yamlScalar(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "0"
+  if (typeof value === "boolean") return value ? "true" : "false"
+  return JSON.stringify(String(value ?? ""))
+}
+
+export function renderCurrentTaskYaml(anchor = {}) {
+  const normalized = normalizeCurrentTaskAnchor(anchor)
+  const lines = [
+    `task_id: ${yamlScalar(normalized.task_id)}`,
+    `title: ${yamlScalar(normalized.title)}`,
+    `summary: ${yamlScalar(normalized.summary)}`,
+    `domain: ${yamlScalar(normalized.domain)}`,
+    `object_type: ${yamlScalar(normalized.object_type)}`,
+    `object_name: ${yamlScalar(normalized.object_name)}`,
+    `scope: ${yamlScalar(normalized.scope)}`,
+    `durability: ${yamlScalar(normalized.durability)}`,
+    `confidence: ${yamlScalar(normalized.confidence)}`,
+    "active_files:",
+    ...normalized.active_files.map((item) => `  - ${yamlScalar(item)}`),
+    "recent_commands:",
+    ...normalized.recent_commands.map((item) => `  - ${yamlScalar(item)}`),
+    "constraints:",
+    ...normalized.constraints.map((item) => `  - ${yamlScalar(item)}`),
+    "next_steps:",
+    ...normalized.next_steps.map((item) => `  - ${yamlScalar(item)}`),
+    `updated_at: ${yamlScalar(normalized.updated_at)}`,
+    "evidence:",
+    ...normalized.evidence.map((item) => `  - ${yamlScalar(item)}`),
+  ]
+  return `${lines.join("\n")}\n`
+}
+
+export function parseCurrentTaskYaml(raw) {
+  const text = String(raw || "")
+  if (!text.trim()) return null
+
+  const result = {}
+  let currentArrayKey = null
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim() || line.trim().startsWith("#")) continue
+
+    const arrayMatch = line.match(/^\s*-\s*(.+)$/)
+    if (arrayMatch && currentArrayKey) {
+      if (!Array.isArray(result[currentArrayKey])) result[currentArrayKey] = []
+      result[currentArrayKey].push(parseYamlScalar(arrayMatch[1]))
+      continue
+    }
+
+    const keyMatch = line.match(/^([a-z_]+):\s*(.*)$/)
+    if (!keyMatch) continue
+    const [, key, valueRaw] = keyMatch
+    if (!valueRaw) {
+      result[key] = []
+      currentArrayKey = key
+      continue
+    }
+    result[key] = parseYamlScalar(valueRaw)
+    currentArrayKey = null
+  }
+
+  return normalizeCurrentTaskAnchor(result)
+}
+
+function parseYamlScalar(raw) {
+  const text = String(raw || "").trim()
+  if (!text) return ""
+  if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return text.slice(1, -1)
+    }
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) {
+    const number = Number(text)
+    return Number.isFinite(number) ? number : text
+  }
+  if (text === "true") return true
+  if (text === "false") return false
+  return text
+}
+
+function normalizeArray(value, fallback = []) {
+  if (!Array.isArray(value)) return [...fallback]
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+}
+
+function normalizeCurrentTaskAnchor(anchor = {}) {
+  const domain = TASK_IDENTITY_ENUMS.domain.has(anchor.domain) ? anchor.domain : "project"
+  const scope = TASK_IDENTITY_ENUMS.scope.has(anchor.scope) ? anchor.scope : "L1"
+  const durability = TASK_IDENTITY_ENUMS.durability.has(anchor.durability) ? anchor.durability : "candidate"
+  return {
+    task_id: String(anchor.task_id || `task-${Date.now()}`),
+    title: String(anchor.title || "Current task"),
+    summary: String(anchor.summary || ""),
+    domain,
+    object_type: String(anchor.object_type || "current project"),
+    object_name: String(anchor.object_name || path.basename(ROOT)),
+    scope,
+    durability,
+    confidence: clampConfidence(Number(anchor.confidence ?? 0.5)),
+    active_files: normalizeArray(anchor.active_files),
+    recent_commands: normalizeArray(anchor.recent_commands),
+    constraints: normalizeArray(anchor.constraints),
+    next_steps: normalizeArray(anchor.next_steps),
+    updated_at: String(anchor.updated_at || new Date().toISOString()),
+    evidence: normalizeArray(anchor.evidence, ["No explicit evidence recorded"]),
+  }
+}
+
+export function renderCurrentTaskMarkdown(anchor = {}) {
+  const normalized = normalizeCurrentTaskAnchor(anchor)
+  const rows = [
+    "# Current Task Anchor",
+    "",
+    `- task_id: \`${normalized.task_id}\``,
+    `- title: ${normalized.title}`,
+    `- summary: ${normalized.summary || "(empty)"}`,
+    `- domain: **${normalized.domain}**`,
+    `- object: ${normalized.object_type} / ${normalized.object_name}`,
+    `- scope: **${normalized.scope}**`,
+    `- durability: **${normalized.durability}**`,
+    `- confidence: ${normalized.confidence}`,
+    `- updated_at: ${normalized.updated_at}`,
+    "",
+    "## Active files",
+    ...toBulletLines(normalized.active_files),
+    "",
+    "## Recent commands",
+    ...toBulletLines(normalized.recent_commands),
+    "",
+    "## Constraints",
+    ...toBulletLines(normalized.constraints),
+    "",
+    "## Next steps",
+    ...toNumberedLines(normalized.next_steps),
+    "",
+    "## Evidence",
+    ...toBulletLines(normalized.evidence),
+    "",
+  ]
+  return rows.join("\n")
+}
+
+function toBulletLines(items) {
+  if (!items.length) return ["- (none)"]
+  return items.map((item) => `- ${item}`)
+}
+
+function toNumberedLines(items) {
+  if (!items.length) return ["1. (none)"]
+  return items.map((item, index) => `${index + 1}. ${item}`)
+}
+
+export function saveCurrentTaskAnchor(anchor = {}, options = {}) {
+  const yamlPath = options.yamlPath || CURRENT_TASK_YAML_PATH
+  const mdPath = options.mdPath || CURRENT_TASK_MD_PATH
+  const normalized = normalizeCurrentTaskAnchor(anchor)
+  saveText(yamlPath, renderCurrentTaskYaml(normalized))
+  saveText(mdPath, renderCurrentTaskMarkdown(normalized))
+  return {
+    yamlPath,
+    mdPath,
+    anchor: normalized,
+  }
+}
+
+export function readCurrentTaskAnchor(yamlPath = CURRENT_TASK_YAML_PATH) {
+  if (!fs.existsSync(yamlPath)) return null
+  const raw = fs.readFileSync(yamlPath, "utf8")
+  return parseCurrentTaskYaml(raw)
 }
 
 export function classifyTask(messages) {

@@ -75,6 +75,12 @@ node scripts/context-budget.mjs --days 14 --max-export-attempts 24 --export-time
 - `--max-export-attempts`: maximum number of sampled sessions to attempt export.
 - `--export-timeout-ms`: per-export timeout in milliseconds.
 
+For large history windows or slow environments, this project has stabilized around:
+
+```bash
+node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000
+```
+
 ## What gets written
 
 - `insights-report.html`
@@ -82,6 +88,30 @@ node scripts/context-budget.mjs --days 14 --max-export-attempts 24 --export-time
 - `.contextos/analysis/context-budget.json`
 - `.contextos/rescue/*.json`
 - `.contextos/rescue/index.md`
+
+## Task Identity Routing
+
+`insights-report.html` and `.contextos/analysis/insights.json` now include task identity routing outputs from `inferTaskIdentityRouting(...)`.
+
+`insights.json` adds aggregated distribution fields under `counts`:
+
+- `taskIdentityDomains`: routing domain frequencies (for example: insights, workflow, maintenance).
+- `taskIdentityScopes`: scope frequencies (for example: file, module, project).
+- `taskIdentityDurabilities`: expected persistence layer of the task (one_shot / iterative / ongoing / uncertain).
+- `taskIdentityObjectTypes`: grouped object_type frequencies (for example: command, capability, file, text).
+- `taskIdentityObjectNames`: top object names by frequency.
+
+Each session record also contains `taskIdentity`:
+
+- `domain`: coarse task domain.
+- `object_type`: what entity the task is about.
+- `object_name`: entity name extracted from request context.
+- `scope`: operational scope.
+- `durability`: likely lifespan or repeatability.
+- `confidence`: numeric score from `0` to `1`.
+- `evidence`: supporting evidence terms.
+
+These fields make intent shifts easier to audit, and help route each analysis result to the right continuation path.
 
 ## Current scope
 
@@ -96,6 +126,25 @@ This starter reads session history through the documented OpenCode CLI surface:
 - `opencode export <sessionID>`
 
 OpenCode versions can change the exact JSON shape of exports over time. The parsers here are defensive, but you should treat them as a strong starter rather than a guaranteed forever-stable parser.
+
+## Verify task identity quality
+
+When validating routing output, focus on these checks:
+
+- Confirm `insights.json` contains non-empty `counts.taskIdentity*` arrays.
+- Confirm at least some items in `sessions[*].taskIdentity.confidence` are above `0.6` when context is clear.
+- Inspect `sessions[*].taskIdentity.evidence` for readable, request-relevant signals.
+- Open `insights-report.html` and ensure the four distribution charts are visible and populated.
+
+Command checklist:
+
+```bash
+node --test
+node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000
+node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000
+```
+
+If `insights-report.html` still shows placeholder text, re-run with the stable flags and check export failures in the command output.
 
 ## Suggested first build loop
 

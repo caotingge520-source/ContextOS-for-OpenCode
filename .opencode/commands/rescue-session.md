@@ -9,6 +9,7 @@ Run:
 
 Then:
 1. Read `@.contextos/rescue/index.md`
-2. Tell the user how many sessions were mirrored
-3. Point to the newest rescue snapshot
-4. Suggest whether `SESSION_GUARD.md` should be refreshed now
+2. Read `@.contextos/tasks/current-task.yaml`
+3. Tell the user how many sessions were mirrored
+4. Point to the newest rescue snapshot and current task identity (domain/object/scope/durability)
+5. Suggest whether `SESSION_GUARD.md` should be refreshed now

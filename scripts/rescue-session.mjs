@@ -2,11 +2,13 @@
 
 import path from "node:path"
 import {
+  CURRENT_TASK_YAML_PATH,
   RESCUE_DIR,
   exportSession,
   extractMessages,
   filterSessionsByDays,
   listSessions,
+  readCurrentTaskAnchor,
   readArgs,
   saveJson,
   saveText,
@@ -43,6 +45,7 @@ async function main() {
   }
 
   const summaries = []
+  const currentTaskAnchor = readCurrentTaskAnchor(CURRENT_TASK_YAML_PATH)
 
   for (const session of sessions) {
     try {
@@ -62,6 +65,16 @@ async function main() {
     "# ContextOS rescue index",
     "",
     `Generated at: ${new Date().toISOString()}`,
+    "",
+    "## Current task anchor",
+    `- title: ${currentTaskAnchor?.title || "(missing)"}`,
+    `- summary: ${currentTaskAnchor?.summary || "(missing)"}`,
+    `- domain: ${currentTaskAnchor?.domain || "unknown"}`,
+    `- object: ${currentTaskAnchor?.object_type || "unknown"} / ${currentTaskAnchor?.object_name || "unknown"}`,
+    `- scope: ${currentTaskAnchor?.scope || "unknown"}`,
+    `- durability: ${currentTaskAnchor?.durability || "unknown"}`,
+    `- next_focus: ${currentTaskAnchor?.object_name || "(unknown)"}`,
+    `- next_step: ${currentTaskAnchor?.next_steps?.[0] || "(missing)"}`,
     "",
     ...summaries.map((item) => [
       `## ${item.title || item.id}`,
@@ -83,6 +96,9 @@ async function main() {
   console.log(`已镜像 ${summaries.length} 个 session`)
   console.log(`最新快照：.contextos/rescue/${summaries[0].id}.json`)
   console.log(`索引文件：.contextos/rescue/index.md`)
+  if (currentTaskAnchor) {
+    console.log(`当前任务：${currentTaskAnchor.title} (${currentTaskAnchor.domain}/${currentTaskAnchor.scope}/${currentTaskAnchor.durability})`)
+  }
 }
 
 main().catch((error) => {

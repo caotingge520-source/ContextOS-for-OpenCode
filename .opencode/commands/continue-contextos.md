@@ -9,6 +9,7 @@ Read:
 - `@docs/MVP.md`
 - `@docs/ARCHITECTURE.md`
 - `@docs/ROADMAP.md`
+- `@.contextos/tasks/current-task.yaml`
 
 Then:
 1. choose the next unfinished high-leverage item

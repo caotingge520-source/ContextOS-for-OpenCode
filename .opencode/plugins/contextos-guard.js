@@ -3,6 +3,7 @@ import { join } from "node:path"
 
 export const ContextOSGuard = async ({ directory }) => {
   const guardPath = join(directory, ".contextos", "guard", "SESSION_GUARD.md")
+  const taskAnchorPath = join(directory, ".contextos", "tasks", "current-task.md")
 
   return {
     "experimental.session.compacting": async (_input, output) => {
@@ -22,6 +23,18 @@ export const ContextOSGuard = async ({ directory }) => {
         "",
         content,
       ].join("\n"))
+
+      if (existsSync(taskAnchorPath)) {
+        const taskAnchor = readFileSync(taskAnchorPath, "utf8").trim()
+        if (taskAnchor) {
+          output.context.push([
+            "## ContextOS Current Task Anchor",
+            "Use this structured task identity for domain/object/scope/durability routing.",
+            "",
+            taskAnchor,
+          ].join("\n"))
+        }
+      }
     },
   }
 }

@@ -8,6 +8,7 @@ import {
   ROOT,
   classifyOutcome,
   classifyTask,
+  inferTaskIdentityRouting,
   countBy,
   dailyActivity,
   detectFriction,
@@ -144,6 +145,31 @@ function analyzeSession(session, exportData) {
     }))
     .filter((msg) => msg.text || msg.name)
 
+  const userRequest = messages.find((msg) => msg.role === "user")?.text || ""
+  const activeFiles = [...new Set(
+    messages
+      .map((msg) => msg.raw?.info?.filePath || msg.raw?.filePath || msg.raw?.path)
+      .filter((value) => typeof value === "string" && value.trim()),
+  )]
+  const recentCommands = [
+    ...messages
+      .filter((msg) => msg.role === "tool" && msg.name)
+      .map((msg) => String(msg.name || "").trim())
+      .filter(Boolean),
+    ...messages
+      .filter((msg) => msg.role === "assistant" && /^\//.test(msg.text))
+      .map((msg) => msg.text.split(/\s+/)[0])
+      .filter(Boolean),
+  ]
+
+  const taskIdentity = inferTaskIdentityRouting({
+    userRequest,
+    recentMessages: messages,
+    activeFiles,
+    recentCommands,
+    cwd: session.project || ROOT,
+  })
+
   const taskDiagnostics = classifyTask(messages, { includeDiagnostics: true })
   const outcomeDiagnostics = classifyOutcome(messages, { includeDiagnostics: true })
   const task = taskDiagnostics.label
@@ -177,6 +203,7 @@ function analyzeSession(session, exportData) {
 
   return {
     ...session,
+    taskIdentity,
     agent: inferredAgent.value,
     project: inferredProject,
     createdAt: inferredCreatedAt.value,
@@ -206,14 +233,191 @@ function parsePositiveInt(raw, fallback) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 }
 
+function parsePositiveNumber(raw, fallback) {
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function parseNonNegativeInt(raw, fallback) {
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+}
+
+function truncateForSummary(value, limit = 240) {
+  const text = String(value || "").replace(/\s+/g, " ").trim()
+  if (!text) return ""
+  return text.length > limit ? `${text.slice(0, limit)}...` : text
+}
+
+function classifyExportFailure(error) {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.toLowerCase()
+  let type = "unknown"
+
+  if (/etimedout|timed out|timeout/.test(normalized)) {
+    type = "timeout"
+  } else if (/empty json output/.test(normalized)) {
+    type = "empty_output"
+  } else if (/failed to parse json output/.test(normalized)) {
+    type = "invalid_json"
+  } else if (/(session|conversation).*(not found|missing|does not exist)|not found.*(session|conversation)|unknown session|no such session/.test(normalized)) {
+    type = "missing_session"
+  } else if (/opencode command failed|could not find executable|enoent|command failed|permission denied|spawn/.test(normalized)) {
+    type = "process_error"
+  }
+
+  const lines = String(message || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const summary = truncateForSummary(lines[0] || message, 200)
+  const stderrSummary = truncateForSummary(lines.slice(1).join(" | ") || summary, 320)
+
+  return {
+    type,
+    message,
+    summary,
+    stderrSummary,
+  }
+}
+
+function blockSleep(ms) {
+  const timeout = Math.max(0, Math.floor(Number(ms) || 0))
+  if (timeout <= 0) return
+  const array = new Int32Array(new SharedArrayBuffer(4))
+  Atomics.wait(array, 0, 0, timeout)
+}
+
+function exportSessionWithRetry(session, exporter, options = {}) {
+  const exportRetries = parseNonNegativeInt(options.exportRetries, 2)
+  const exportRetryDelayMs = parseNonNegativeInt(options.exportRetryDelayMs, 350)
+  const exportBackoffMultiplier = parsePositiveNumber(options.exportBackoffMultiplier, 1.8)
+  const exportTimeoutMs = parsePositiveInt(options.exportTimeoutMs, 8000)
+  const shouldLogSkips = options.shouldLogSkips !== false
+  const waitFn = typeof options.waitFn === "function" ? options.waitFn : blockSleep
+
+  const maxAttempts = exportRetries + 1
+  const nonRetryableTypes = new Set(["missing_session", "process_error"])
+  let lastFailure = null
+  let lastDurationMs = 0
+  let totalDurationMs = 0
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const attemptStart = Date.now()
+    try {
+      const data = exporter(session.id, { timeoutMs: exportTimeoutMs })
+      lastDurationMs = Date.now() - attemptStart
+      totalDurationMs += lastDurationMs
+      return {
+        ok: true,
+        data,
+        attemptCount: attempt,
+        retried: attempt > 1,
+        lastDurationMs,
+        totalDurationMs,
+      }
+    } catch (error) {
+      lastDurationMs = Date.now() - attemptStart
+      totalDurationMs += lastDurationMs
+      const classified = classifyExportFailure(error)
+      lastFailure = {
+        sessionID: session.id,
+        projectPath: session.project || "unknown-project",
+        attemptCount: attempt,
+        finalFailureType: classified.type,
+        reason: classified.message,
+        reasonSummary: classified.summary,
+        stderrSummary: classified.stderrSummary,
+        lastCommandDurationMs: lastDurationMs,
+        retried: attempt > 1,
+      }
+
+      if (attempt >= maxAttempts) {
+        break
+      }
+
+      if (nonRetryableTypes.has(classified.type)) {
+        break
+      }
+
+      const delayMs = Math.round(exportRetryDelayMs * Math.pow(exportBackoffMultiplier, attempt - 1))
+      if (shouldLogSkips) {
+        console.warn(
+          `Export retry ${attempt}/${maxAttempts - 1} for ${session.id} after ${classified.type}: ${classified.summary}`,
+        )
+      }
+      waitFn(delayMs)
+    }
+  }
+
+  return {
+    ok: false,
+    failure: {
+      ...lastFailure,
+      attemptCount: lastFailure?.attemptCount || maxAttempts,
+      retried: (lastFailure?.attemptCount || maxAttempts) > 1,
+      totalDurationMs,
+    },
+  }
+}
+
+function buildExportDiagnosticsSummary(details) {
+  const failureCountsByType = countBy(details.failedSessions, (entry) => entry.finalFailureType || "unknown")
+    .sort((a, b) => b.count - a.count)
+  const topFailureTypes = failureCountsByType.slice(0, 3)
+  const coveragePct = formatPct(details.analyzedSessions + details.metadataOnlySessions, details.totalSessionsRequested)
+  const exportSuccessRate = formatPct(details.exportSucceeded, details.exportAttempted)
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalSessionsRequested: details.totalSessionsRequested,
+    exportAttempted: details.exportAttempted,
+    exportSucceeded: details.exportSucceeded,
+    exportFailed: details.exportFailed,
+    exportSuccessRate,
+    analysisCoverage: {
+      analyzedSessions: details.analyzedSessions,
+      metadataOnlySessions: details.metadataOnlySessions,
+      coverageRate: coveragePct,
+    },
+    analysisFailures: {
+      count: details.analysisFailures.length,
+      sessions: details.analysisFailures,
+    },
+    failureCountsByType,
+    topFailureTypes,
+    retryStats: {
+      sessionsRetried: details.sessionsRetried,
+      recoveredAfterRetry: details.recoveredAfterRetry,
+      failedAfterRetry: details.failedAfterRetry,
+      retryAttempts: details.retryAttempts,
+    },
+    failedSessions: details.failedSessions,
+    metadataOnlySessions: details.metadataOnlySessionDetails,
+  }
+}
+
 function collectAnalyzedSessions(sessions, analyzeFn, options = {}) {
   const maxAttempts = parsePositiveInt(options.maxAttempts, sessions.length || 0)
   const minMessages = parsePositiveInt(options.minMessages, 3)
+  const exportRetries = parseNonNegativeInt(options.exportRetries, 2)
+  const exportRetryDelayMs = parseNonNegativeInt(options.exportRetryDelayMs, 350)
+  const exportBackoffMultiplier = parsePositiveNumber(options.exportBackoffMultiplier, 1.8)
   const exportTimeoutMs = parsePositiveInt(options.exportTimeoutMs, 8000)
   const shouldLogSkips = options.shouldLogSkips !== false
+  const exporter = typeof options.exporter === "function" ? options.exporter : exportSession
 
   const analyzed = []
   const skipped = []
+  const metadataOnly = []
+  const failedSessions = []
+  const analysisFailures = []
+
+  let retryAttempts = 0
+  let sessionsRetried = 0
+  let recoveredAfterRetry = 0
+  let failedAfterRetry = 0
 
   let attempts = 0
   for (const session of sessions) {
@@ -222,26 +426,106 @@ function collectAnalyzedSessions(sessions, analyzeFn, options = {}) {
     }
 
     attempts += 1
+    const exportResult = exportSessionWithRetry(session, exporter, {
+      exportRetries,
+      exportRetryDelayMs,
+      exportBackoffMultiplier,
+      exportTimeoutMs,
+      shouldLogSkips,
+      waitFn: options.waitFn,
+    })
+
+    const wasRetried = exportResult.ok ? exportResult.retried : Boolean(exportResult.failure?.retried)
+    const attemptCount = exportResult.ok ? exportResult.attemptCount : exportResult.failure?.attemptCount || 1
+
+    if (wasRetried) {
+      sessionsRetried += 1
+      retryAttempts += Math.max(0, attemptCount - 1)
+    }
+
+    if (!exportResult.ok) {
+      const failure = exportResult.failure
+      failedSessions.push(failure)
+      skipped.push({
+        id: session.id,
+        reason: failure.reason,
+        type: failure.finalFailureType,
+      })
+      if (failure.retried) {
+        failedAfterRetry += 1
+      }
+      if (shouldLogSkips) {
+        console.warn(`Skipped session ${session.id} [${failure.finalFailureType}]: ${failure.reasonSummary}`)
+      }
+      continue
+    }
+
+    if (exportResult.retried) {
+      recoveredAfterRetry += 1
+    }
+
     try {
-      const exportData = exportSession(session.id, { timeoutMs: exportTimeoutMs })
+      const exportData = exportResult.data
       const result = analyzeFn(session, exportData)
       if (result.messages.length >= minMessages) {
         analyzed.push(result)
+      } else {
+        metadataOnly.push({
+          id: session.id,
+          title: session.title,
+          project: session.project || "unknown-project",
+          messageCount: result.messages.length,
+          reason: `below_min_messages:${minMessages}`,
+          exportAttemptCount: exportResult.attemptCount,
+          retried: exportResult.retried,
+        })
       }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      skipped.push({ id: session.id, reason })
+      const classified = classifyExportFailure(error)
+      const reason = classified.message
+      const analysisFailure = {
+        sessionID: session.id,
+        projectPath: session.project || "unknown-project",
+        attemptCount: exportResult.attemptCount || 1,
+        finalFailureType: "unknown",
+        reason,
+        reasonSummary: classified.summary,
+        stderrSummary: classified.stderrSummary,
+        lastCommandDurationMs: exportResult.lastDurationMs || 0,
+        retried: exportResult.retried,
+        totalDurationMs: exportResult.totalDurationMs || 0,
+        stage: "analysis",
+      }
+      analysisFailures.push(analysisFailure)
+      skipped.push({ id: session.id, reason, type: "unknown", stage: "analysis" })
       if (shouldLogSkips) {
-        const reasonPreview = reason ? reason.split("\n")[0].slice(0, 160) : "unknown"
-        console.warn(`Skipped session ${session.id}: ${reasonPreview}`)
+        console.warn(`Skipped session ${session.id} [analysis_error]: ${classified.summary}`)
       }
     }
   }
 
-  return { analyzed, skipped, attempts }
+  const exportDiagnostics = buildExportDiagnosticsSummary({
+    totalSessionsRequested: sessions.length,
+    exportAttempted: attempts,
+    exportSucceeded: attempts - failedSessions.length,
+    exportFailed: failedSessions.length,
+    analyzedSessions: analyzed.length,
+    metadataOnlySessions: metadataOnly.length,
+    failedSessions,
+    metadataOnlySessionDetails: metadataOnly,
+    analysisFailures,
+    sessionsRetried,
+    recoveredAfterRetry,
+    failedAfterRetry,
+    retryAttempts,
+  })
+
+  return { analyzed, skipped, attempts, metadataOnly, exportDiagnostics, analysisFailures }
 }
 
-function aggregateInsights(allSessions, analyzedSessions, days) {
+function aggregateInsights(allSessions, analyzedSessions, days, options = {}) {
+  const exportDiagnostics = options.exportDiagnostics || null
+  const metadataOnlySessions = Array.isArray(options.metadataOnlySessions) ? options.metadataOnlySessions : []
   const totalMessages = analyzedSessions.reduce((sum, session) => sum + session.messages.length, 0)
   const analyzedById = new Map(analyzedSessions.map((session) => [session.id, session]))
   const enrichedSessions = allSessions.map((session) => {
@@ -280,6 +564,26 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
   const noisyFrictionCounts = countBy(noisyFrictionEntries, (entry) => entry.type).sort((a, b) => b.count - a.count)
   const taskCounts = countBy(analyzedSessions, (session) => session.task).sort((a, b) => b.count - a.count)
   const outcomeCounts = countBy(analyzedSessions, (session) => session.outcome).sort((a, b) => b.count - a.count)
+  const taskIdentityDomainCounts = countBy(
+    analyzedSessions,
+    (session) => session.taskIdentity?.domain || "unknown",
+  ).sort((a, b) => b.count - a.count)
+  const taskIdentityScopeCounts = countBy(
+    analyzedSessions,
+    (session) => session.taskIdentity?.scope || "unknown",
+  ).sort((a, b) => b.count - a.count)
+  const taskIdentityDurabilityCounts = countBy(
+    analyzedSessions,
+    (session) => session.taskIdentity?.durability || "unknown",
+  ).sort((a, b) => b.count - a.count)
+  const taskIdentityObjectTypeCounts = countBy(
+    analyzedSessions,
+    (session) => session.taskIdentity?.object_type || "unknown",
+  ).sort((a, b) => b.count - a.count)
+  const taskIdentityTopObjectNameCounts = countBy(
+    analyzedSessions,
+    (session) => session.taskIdentity?.object_name || "unknown",
+  ).sort((a, b) => b.count - a.count)
   const agentCounts = countBy(enrichedSessions, (session) => session.agent || "unknown-agent").sort((a, b) => b.count - a.count)
   const taskSourceCounts = countBy(analyzedSessions, (session) => session.taskDiagnostics?.source || "fallback").sort(
     (a, b) => b.count - a.count,
@@ -343,12 +647,41 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
         createdAtSources: createdAtParseSourceCounts,
         updatedAtSources: updatedAtParseSourceCounts,
         noisyFrictionRate: formatPct(noisyFrictionEntries.length, analyzedSessions.length),
+        export: exportDiagnostics
+          ? {
+              totalSessionsRequested: exportDiagnostics.totalSessionsRequested,
+              exportAttempted: exportDiagnostics.exportAttempted,
+              exportSucceeded: exportDiagnostics.exportSucceeded,
+              exportFailed: exportDiagnostics.exportFailed,
+              exportSuccessRate: exportDiagnostics.exportSuccessRate,
+              analysisCoverage: exportDiagnostics.analysisCoverage,
+              analysisFailures: exportDiagnostics.analysisFailures,
+              topFailureTypes: exportDiagnostics.topFailureTypes,
+              retryStats: exportDiagnostics.retryStats,
+            }
+          : null,
       },
       dailyAverageSessions: activeDays ? (allSessions.length / activeDays).toFixed(1) : "0.0",
+      exportCoverage: exportDiagnostics
+        ? {
+            exportAttempted: exportDiagnostics.exportAttempted,
+            exportSucceeded: exportDiagnostics.exportSucceeded,
+            exportFailed: exportDiagnostics.exportFailed,
+            exportSuccessRate: exportDiagnostics.exportSuccessRate,
+            analysisCoverageRate: exportDiagnostics.analysisCoverage.coverageRate,
+            metadataOnlySessions: metadataOnlySessions.length,
+            topFailureTypes: exportDiagnostics.topFailureTypes,
+          }
+        : null,
     },
     counts: {
       tasks: taskCounts,
       outcomes: outcomeCounts,
+      taskIdentityDomains: taskIdentityDomainCounts,
+      taskIdentityScopes: taskIdentityScopeCounts,
+      taskIdentityDurabilities: taskIdentityDurabilityCounts,
+      taskIdentityObjectTypes: taskIdentityObjectTypeCounts,
+      taskIdentityObjectNames: taskIdentityTopObjectNameCounts,
       frictions: frictionCounts,
       agents: agentCounts,
       tools: toolCounts,
@@ -371,6 +704,15 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
       id: session.id,
       title: session.title,
       task: session.task,
+      taskIdentity: {
+        domain: session.taskIdentity?.domain,
+        object_type: session.taskIdentity?.object_type,
+        object_name: session.taskIdentity?.object_name,
+        scope: session.taskIdentity?.scope,
+        durability: session.taskIdentity?.durability,
+        confidence: session.taskIdentity?.confidence,
+        evidence: session.taskIdentity?.evidence,
+      },
       outcome: session.outcome,
       frictionCount: session.frictionCount,
       noisyFrictionCount: session.noisyFrictionCount,
@@ -385,6 +727,7 @@ function aggregateInsights(allSessions, analyzedSessions, days) {
       createdAtDiagnostics: session.createdAtDiagnostics,
       updatedAtDiagnostics: session.updatedAtDiagnostics,
     })),
+    metadataOnlySessions,
   }
 }
 
@@ -636,6 +979,36 @@ function withPct(entries) {
 }
 
 function fillTemplate(template, report) {
+  const taskIdentityDomainDistribution = withPct(report.counts.taskIdentityDomains).slice(0, 8).map((item) => ({
+    domain: item.key,
+    count: item.count,
+    pct: item.pct,
+  }))
+
+  const taskIdentityScopeDistribution = withPct(report.counts.taskIdentityScopes).slice(0, 8).map((item) => ({
+    scope: item.key,
+    count: item.count,
+    pct: item.pct,
+  }))
+
+  const taskIdentityDurabilityDistribution = withPct(report.counts.taskIdentityDurabilities).slice(0, 8).map((item) => ({
+    durability: item.key,
+    count: item.count,
+    pct: item.pct,
+  }))
+
+  const taskIdentityObjectTypeDistribution = withPct(report.counts.taskIdentityObjectTypes).slice(0, 8).map((item) => ({
+    objectType: item.key,
+    count: item.count,
+    pct: item.pct,
+  }))
+
+  const taskIdentityObjectNameDistribution = withPct(report.counts.taskIdentityObjectNames).slice(0, 8).map((item) => ({
+    objectName: item.key,
+    count: item.count,
+    pct: item.pct,
+  }))
+
   const replacements = {
     "__EXECUTIVE_SUMMARY__": renderExecutiveSummary(report),
     "__TOTAL_SESSIONS__": String(report.meta.totalSessions),
@@ -651,6 +1024,11 @@ function fillTemplate(template, report) {
     "__SATISFACTION_TREND_DATA__": JSON.stringify(report.visuals.satisfactionTrend),
     "__TOOL_USAGE_DATA__": JSON.stringify(withPct(report.counts.tools.slice(0, 10)).map((item) => ({ tool: item.key, count: item.count, pct: item.pct }))),
     "__TASK_DISTRIBUTION_DATA__": JSON.stringify(withPct(report.counts.tasks).map((item) => ({ type: item.key, count: item.count, pct: item.pct }))),
+    "__TASK_IDENTITY_DOMAIN_DISTRIBUTION_DATA__": JSON.stringify(taskIdentityDomainDistribution),
+    "__TASK_IDENTITY_SCOPE_DISTRIBUTION_DATA__": JSON.stringify(taskIdentityScopeDistribution),
+    "__TASK_IDENTITY_DURABILITY_DISTRIBUTION_DATA__": JSON.stringify(taskIdentityDurabilityDistribution),
+    "__TASK_IDENTITY_OBJECT_TYPE_DISTRIBUTION_DATA__": JSON.stringify(taskIdentityObjectTypeDistribution),
+    "__TASK_IDENTITY_OBJECT_NAME_DISTRIBUTION_DATA__": JSON.stringify(taskIdentityObjectNameDistribution),
     "__AGENT_DISTRIBUTION_DATA__": JSON.stringify(withPct(report.counts.agents.slice(0, 10)).map((item) => ({ agent: item.key, count: item.count, pct: item.pct }))),
     "__FRICTION_ANALYSIS__": renderFrictionAnalysis(report),
     "__WHATS_WORKING__": renderWhatWorks(report),
@@ -676,11 +1054,26 @@ function fillTemplate(template, report) {
   return output
 }
 
-function printSummary(report, outputPath) {
+function printSummary(report, outputPath, diagnosticsPath) {
   const topFrictions = report.counts.frictions.slice(0, 3).map((item) => `${item.key}(${item.count})`).join(", ") || "none"
   const quickWins = report.examples.quickWins.slice(0, 3).map((item) => item.title).join("; ") || "none"
+  const exportDiag = report.meta?.diagnostics?.export
+  const failureTypes = exportDiag?.topFailureTypes?.length
+    ? exportDiag.topFailureTypes.map((item) => `${item.key}(${item.count})`).join(", ")
+    : "none"
 
   console.log(`分析 session：${report.meta.analyzedSessions}/${report.meta.totalSessions}`)
+  if (exportDiag) {
+    const coverage = exportDiag.analysisCoverage?.coverageRate || "0%"
+    const analysisFailures = exportDiag.analysisFailures?.count || 0
+    console.log(`导出请求/尝试：${exportDiag.totalSessionsRequested}/${exportDiag.exportAttempted}`)
+    console.log(`导出成功/失败：${exportDiag.exportSucceeded}/${exportDiag.exportFailed}`)
+    console.log(`导出成功率：${exportDiag.exportSuccessRate}`)
+    console.log(`分析覆盖率（含 metadata-only）：${coverage}`)
+    console.log(`分析阶段失败：${analysisFailures}`)
+    console.log(`Top 失败类型：${failureTypes}`)
+    console.log(`导出诊断文件：${diagnosticsPath}`)
+  }
   console.log(`时间范围：${report.meta.dateRange}`)
   console.log(`任务完成率：${report.meta.completionRate}`)
   console.log(`平均 session 长度：${report.meta.averageSessionLength}`)
@@ -696,25 +1089,34 @@ async function main() {
   const maxCount = Number(args["max-count"] || 120)
   const maxExportAttempts = parsePositiveInt(args["max-export-attempts"], 24)
   const exportTimeoutMs = parsePositiveInt(args["export-timeout-ms"], 8000)
+  const exportRetries = parseNonNegativeInt(args["export-retries"], 2)
+  const exportRetryDelayMs = parseNonNegativeInt(args["export-retry-delay-ms"], 350)
+  const exportBackoffMultiplier = parsePositiveNumber(args["export-backoff-multiplier"], 1.8)
   const outputPath = path.isAbsolute(args.output || "")
     ? args.output
     : path.join(OUTPUT_ROOT, args.output || "insights-report.html")
   const templatePath = path.join(ROOT, "templates", "report-template.html")
+  const exportDiagnosticsPath = path.join(ANALYSIS_DIR, "insights-export-diagnostics.json")
 
   const allRecentSessions = filterSessionsByDays(listSessions({ maxCount }), days)
   const sampledSessions = sampleSessions(allRecentSessions, 30)
 
-  const { analyzed, skipped, attempts } = collectAnalyzedSessions(sampledSessions, analyzeSession, {
+  const { analyzed, skipped, attempts, metadataOnly, exportDiagnostics } = collectAnalyzedSessions(sampledSessions, analyzeSession, {
     maxAttempts: maxExportAttempts,
     minMessages: 3,
     exportTimeoutMs,
+    exportRetries,
+    exportRetryDelayMs,
+    exportBackoffMultiplier,
   })
 
-  if (!skipped.length && !analyzed.length) {
-    throw new Error("No sessions could be analyzed. Check OpenCode session export data shape and CLI availability.")
+  saveJson(exportDiagnosticsPath, exportDiagnostics)
+
+  if (!allRecentSessions.length) {
+    throw new Error("No sessions found in the selected time window. Try a larger --days value or check local session history.")
   }
 
-  if (!analyzed.length) {
+  if (!analyzed.length && !metadataOnly.length && skipped.length) {
     const summary = skipped
       .slice(0, 4)
       .map((item) => `${item.id}: ${item.reason.split("\n")[0]}`)
@@ -724,17 +1126,16 @@ async function main() {
     )
   }
 
-  if (!allRecentSessions.length) {
-    throw new Error("No sessions found in the selected time window. Try a larger --days value or check local session history.")
-  }
-
-  const report = aggregateInsights(allRecentSessions, analyzed, days)
+  const report = aggregateInsights(allRecentSessions, analyzed, days, {
+    exportDiagnostics,
+    metadataOnlySessions: metadataOnly,
+  })
   const template = loadTemplate(templatePath)
   const html = fillTemplate(template, report)
 
   saveJson(path.join(ANALYSIS_DIR, "insights.json"), report)
   saveText(outputPath, html)
-  printSummary(report, outputPath)
+  printSummary(report, outputPath, exportDiagnosticsPath)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -752,4 +1153,7 @@ export {
   renderDiagnosticsPanel,
   renderSessionDiagnostics,
   fillTemplate,
+  classifyExportFailure,
+  exportSessionWithRetry,
+  collectAnalyzedSessions,
 }

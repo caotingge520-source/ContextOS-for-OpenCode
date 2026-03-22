@@ -8,9 +8,12 @@ import {
   extractRepeatedInstructions,
   classifyTask,
   classifyOutcome,
+  inferTaskIdentityRouting,
   detectFriction,
   parseJsonLoose,
   formatDateRange,
+  renderCurrentTaskYaml,
+  parseCurrentTaskYaml,
 } from "../scripts/contextos-lib.mjs"
 
 const sessionListFixture = JSON.parse(
@@ -171,4 +174,60 @@ test("extractRepeatedInstructions reports evidence metadata", () => {
   assert.ok(repeated.every((item) => typeof item.evidenceCount === "number"))
   assert.ok(repeated.every((item) => Array.isArray(item.sessionIDs)))
   assert.ok(repeated.every((item) => Array.isArray(item.evidence)))
+})
+
+test("inferTaskIdentityRouting returns normalized domain/scope/durability and confidence", () => {
+  const result = inferTaskIdentityRouting({
+    userRequest: "完善 ContextOS insights 面板，补齐能力单元能力分布图",
+    recentMessages: [
+      { role: "user", text: "/insights 报告里多加一块任务身份分布" },
+      { role: "assistant", text: "继续推进实现" },
+    ],
+    activeFiles: ["D:\\repo\\ContextOS-for-OpenCode\\scripts\\generate-insights.mjs"],
+    recentCommands: ["/insights"],
+    cwd: "D:\\repo\\ContextOS-for-OpenCode",
+  })
+
+  assert.ok(["project", "capability", "platform", "preference"].includes(result.domain))
+  assert.ok(["L1", "L2", "L3"].includes(result.scope))
+  assert.ok(["session", "candidate", "durable"].includes(result.durability))
+  assert.equal(typeof result.object_type, "string")
+  assert.equal(typeof result.object_name, "string")
+  assert.equal(typeof result.confidence, "number")
+  assert.ok(result.confidence >= 0 && result.confidence <= 1)
+  assert.ok(Array.isArray(result.evidence))
+})
+
+test("renderCurrentTaskYaml and parseCurrentTaskYaml are round-trip compatible", () => {
+  const anchor = {
+    task_id: "task-identity-test",
+    title: "ContextOS 任务身份路由",
+    summary: "验证任务身份字段在会话报告中的可回放",
+    domain: "project",
+    object_type: "current project",
+    object_name: "ContextOS",
+    scope: "L1",
+    durability: "durable",
+    confidence: 0.87,
+    active_files: ["scripts/generate-insights.mjs", "templates/report-template.html"],
+    recent_commands: ["node scripts/generate-insights.mjs", "/insights"],
+    constraints: ["local-first"],
+    next_steps: ["补充 README 文档", "补充测试"],
+    updated_at: "2026-01-01T00:00:00.000Z",
+    evidence: ["用户请求包含 task identity", "已识别到 capability 线索"],
+  }
+
+  const rendered = renderCurrentTaskYaml(anchor)
+  const parsed = parseCurrentTaskYaml(rendered)
+
+  assert.equal(parsed.domain, anchor.domain)
+  assert.equal(parsed.scope, anchor.scope)
+  assert.equal(parsed.durability, anchor.durability)
+  assert.equal(parsed.task_id, anchor.task_id)
+  assert.equal(parsed.title, anchor.title)
+  assert.equal(parsed.object_name, anchor.object_name)
+  assert.ok(Array.isArray(parsed.active_files))
+  assert.equal(parsed.active_files.length, anchor.active_files.length)
+  assert.ok(parsed.evidence.length >= 2)
+  assert.equal(parsed.confidence, 0.87)
 })
