@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ContextOS Runtime Risk Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #131a2b;
+      --line: #2a3551;
+      --text: #e9eefc;
+      --muted: #9fb0d7;
+      --good: #7ee787;
+      --warn: #ffcc66;
+      --bad: #ff8a8a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #09101d 0%, #0f1526 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 18px 52px;
+    }
+    .panel {
+      background: rgba(19, 26, 43, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .head {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1.2fr 0.8fr;
+    }
+    .risk-card {
+      border-left: 6px solid var(--warn);
+    }
+    .risk-card.green { border-left-color: var(--good); }
+    .risk-card.yellow { border-left-color: var(--warn); }
+    .risk-card.red { border-left-color: var(--bad); }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin: 0 0 10px; font-size: 18px; }
+    h3 { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+    ul { margin: 0; padding-left: 18px; }
+    .muted { color: var(--muted); }
+    .metrics {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+    .metric {
+      background: #0e1527;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .metric .v { font-size: 22px; font-weight: 700; }
+    .signal {
+      background: #0d1426;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .signal h4 {
+      margin: 0 0 8px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+    }
+    .signal.green h4 { color: var(--good); }
+    .signal.yellow h4 { color: var(--warn); }
+    .signal.red h4 { color: var(--bad); }
+    .cols {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    .footer { color: var(--muted); font-size: 12px; margin-top: 10px; }
+    @media (max-width: 900px) {
+      .head, .cols { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="head">
+      <div class="panel">
+        <h1>Context Runtime Risk Report</h1>
+        <div class="muted">生成时间：2026-03-22T17:11:18.339Z</div>
+      </div>
+      <div class="panel risk-card red">
+        <h3>当前风险等级</h3>
+        <div style="font-size:32px;font-weight:700;">RED</div>
+        <div class="muted">风险分：84/100</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Session 负载概览</h2>
+      <div class="metrics">
+        <div class="metric"><div class="muted">扫描 Session</div><div class="v">19</div></div>
+        <div class="metric"><div class="muted">总消息数</div><div class="v">1464</div></div>
+        <div class="metric"><div class="muted">总字符数</div><div class="v">5374565</div></div>
+        <div class="metric"><div class="muted">单会话最大消息</div><div class="v">352</div></div>
+        <div class="metric"><div class="muted">单会话最大字符</div><div class="v">1320002</div></div>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h2>Top 风险来源</h2>
+        <ul><li><strong>Session 负载压力</strong> (20/20) - max_messages=352</li>
+<li><strong>长文本/大工具输出</strong> (14/14) - long_output_events=79</li>
+<li><strong>当前任务锚点对齐度</strong> (12/12) - current-task.yaml missing</li></ul>
+      </div>
+      <div class="panel">
+        <h2>建议动作</h2>
+        <ul>
+          <li><strong>立即动作：</strong>先刷新 guard - SESSION_GUARD 不存在或已过期，继续扩张上下文会显著增加 compaction 后失真风险。</li>
+        </ul>
+        <ul style="margin-top:10px;"><li><strong>1. 先暂停继续扩张上下文</strong> - 在风险恢复到 yellow/green 前，避免新增并行支线与大段原文搬运。</li>
+<li><strong>2. 先收束当前任务范围</strong> - current-task 锚点与最近会话可能脱节，先统一目标/边界/下一步。</li>
+<li><strong>3. 先把重复约束沉淀成规则</strong> - 将高频重复指令固定到 AGENTS 或 skill，减少上下文反复解释成本。</li></ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>风险信号与证据</h2>
+      <div class="signal red"><h4>Session 负载压力 <span>20/20</span></h4><ul><li>max_messages=352</li><li>max_chars=1320002</li><li>avg_messages=77</li></ul></div>
+<div class="signal red"><h4>长文本/大工具输出 <span>14/14</span></h4><ul><li>long_output_events=79</li><li>max_session_chars=1320002</li></ul></div>
+<div class="signal red"><h4>重复指令堆叠 <span>10/12</span></h4><ul><li>repeated_groups=3</li><li>top_repeated_count=3</li><li>within_session_repeats=6</li></ul></div>
+<div class="signal yellow"><h4>Guard 快照新鲜度 <span>9/14</span></h4><ul><li>guard_age=1d</li><li>contains current task section</li><li>contains next steps</li></ul></div>
+<div class="signal red"><h4>当前任务锚点对齐度 <span>12/12</span></h4><ul><li>current-task.yaml missing</li></ul></div>
+<div class="signal red"><h4>活跃文件扩张 <span>10/10</span></h4><ul><li>unique_active_files=77</li><li>max_active_files_in_session=22</li></ul></div>
+<div class="signal green"><h4>工具调用噪声密度 <span>1/10</span></h4><ul><li>average_tool_density=0.01</li><li>noisy_tool_sessions=0</li></ul></div>
+<div class="signal red"><h4>Compaction 临近风险 <span>8/8</span></h4><ul><li>workload_component=20</li><li>guard_component=9</li><li>task_component=12</li></ul></div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h2>Guard / Task / Rescue 状态</h2>
+        <ul>
+          <li><strong>Guard:</strong> stale (1d)</li>
+          <li><strong>Task Anchor:</strong> missing</li>
+          <li><strong>Rescue:</strong> not-ready (0 snapshots)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>运行提示</h2>
+        <ul>
+          <li>该报告用于“先活下来”的风险治理，不是美化分析。</li>
+          <li>建议先执行立即动作，再决定是否继续扩张上下文。</li>
+          <li>风险等级来自多信号可解释评分，避免单一 token 误判。</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="footer">ContextOS local-first runtime governance</div>
+  </div>
+</body>
+</html>
