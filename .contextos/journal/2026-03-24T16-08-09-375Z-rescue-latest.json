@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-03-24T16:08:09.375Z",
+  "type": "rescue_latest",
+  "title": "refresh current task identity routing anchor",
+  "summary": "rescue latest helper bundle generated",
+  "files": [
+    ".contextos/rescue/latest/restore-summary.md",
+    ".contextos/rescue/latest/latest-snapshot.json",
+    ".contextos/rescue/latest/continue-prompt.md"
+  ],
+  "next_steps": [
+    "逐批尝试 `node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000` 与 `node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000`",
+    "如果超时仍多，优先修复导出链路（先确认 `opencode export` CLI 的稳定性再考虑更改脚本）",
+    "在可复核状态下执行 `/optimize-context`，并按建议把规则沉入 AGENTS 或 Skill"
+  ],
+  "constraints": [
+    "Stay local-first",
+    "Do not add cloud sync",
+    "Prefer reviewable patches over hidden automation",
+    "继续优先复用现有本地分析文件进行续航，不做空口承诺的状态更新"
+  ],
+  "metadata": {}
+}

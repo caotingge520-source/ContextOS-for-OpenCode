@@ -7,7 +7,10 @@ import {
   CURRENT_TASK_MD_PATH,
   CURRENT_TASK_YAML_PATH,
   GUARD_PATH,
+  MEMORY_CORE_PATH,
   ROOT,
+  SITUATION_MD_PATH,
+  appendJournalEntry,
   exportSession,
   extractMessages,
   inferTaskIdentityRouting,
@@ -16,6 +19,7 @@ import {
   readArgs,
   readCurrentTaskAnchor,
   renderCurrentTaskMarkdown,
+  readTextIfExists,
   saveCurrentTaskAnchor,
   saveText,
 } from "./contextos-lib.mjs"
@@ -155,16 +159,74 @@ function syncGuardFromAnchor(anchor, guardPath = GUARD_PATH) {
   const nextStepsBlock = anchor.next_steps.length
     ? anchor.next_steps.map((item, index) => `${index + 1}. ${item}`)
     : ["1. (none)"]
+  const decisionsBlock = parseGuardSection(existing, "Recent decisions").length
+    ? parseGuardSection(existing, "Recent decisions")
+    : anchor.evidence.slice(0, 5)
+  const snapshotBlock = [
+    `- generatedAt: ${new Date().toISOString()}`,
+    `- task title: ${anchor.title}`,
+    `- domain/scope/durability: ${anchor.domain}/${anchor.scope}/${anchor.durability}`,
+    `- active files: ${anchor.active_files.length}`,
+    `- next steps: ${anchor.next_steps.length}`,
+  ]
 
   let output = existing
   output = upsertSection(output, "Current task", [
     `- ${anchor.title}`,
   ])
   output = upsertSection(output, "Current task anchor", anchorBlock)
+  output = upsertSection(output, "State snapshot metadata", snapshotBlock)
   output = upsertSection(output, "Active files", activeFilesBlock)
+  output = upsertSection(output, "Recent decisions", decisionsBlock.map((item) => `- ${item}`))
   output = upsertSection(output, "Constraints that must survive compaction", constraintsBlock)
   output = upsertSection(output, "Next 3 steps", nextStepsBlock)
   saveText(guardPath, output.trimEnd() + "\n")
+}
+
+function writeSituation(anchor) {
+  const lines = [
+    "# Current Situation",
+    "",
+    `Generated at: ${new Date().toISOString()}`,
+    "",
+    "## What we are doing",
+    `- ${anchor.title}`,
+    `- ${anchor.summary || "(no summary)"}`,
+    "",
+    "## Task identity",
+    `- domain: ${anchor.domain}`,
+    `- scope: ${anchor.scope}`,
+    `- durability: ${anchor.durability}`,
+    `- object: ${anchor.object_type} / ${anchor.object_name}`,
+    "",
+    "## Active files",
+    ...(anchor.active_files.length ? anchor.active_files.map((item) => `- ${item}`) : ["- (none)"]),
+    "",
+    "## Recent decisions",
+    ...(anchor.evidence.length ? anchor.evidence.slice(0, 5).map((item) => `- ${item}`) : ["- (none)"]),
+    "",
+    "## Next steps",
+    ...(anchor.next_steps.length ? anchor.next_steps.map((item, index) => `${index + 1}. ${item}`) : ["1. (none)"]),
+    "",
+  ]
+  saveText(SITUATION_MD_PATH, `${lines.join("\n")}\n`)
+}
+
+function updateMemoryCore(anchor) {
+  const existing = readTextIfExists(MEMORY_CORE_PATH, "")
+  const marker = `## ${new Date().toISOString()}`
+  const block = [
+    marker,
+    `- task: ${anchor.title}`,
+    `- identity: ${anchor.domain}/${anchor.scope}/${anchor.durability}`,
+    `- next step: ${anchor.next_steps[0] || "(none)"}`,
+    `- constraint: ${anchor.constraints[0] || "(none)"}`,
+    "",
+  ].join("\n")
+  const nextContent = existing.trim()
+    ? `${existing.trimEnd()}\n\n${block}`
+    : `# Core Discoveries\n\n${block}`
+  saveText(MEMORY_CORE_PATH, `${nextContent.trimEnd()}\n`)
 }
 
 async function main() {
@@ -247,6 +309,23 @@ async function main() {
     syncGuardFromAnchor(saved.anchor)
   }
 
+  writeSituation(saved.anchor)
+  updateMemoryCore(saved.anchor)
+  appendJournalEntry({
+    type: "task_refresh",
+    title: saved.anchor.title,
+    summary: saved.anchor.summary,
+    files: saved.anchor.active_files,
+    next_steps: saved.anchor.next_steps,
+    constraints: saved.anchor.constraints,
+    metadata: {
+      domain: saved.anchor.domain,
+      scope: saved.anchor.scope,
+      durability: saved.anchor.durability,
+      confidence: saved.anchor.confidence,
+    },
+  })
+
   const latest = renderCurrentTaskMarkdown(saved.anchor)
   if (args.stdout === true) {
     process.stdout.write(`${latest}\n`)
@@ -254,6 +333,8 @@ async function main() {
 
   console.log(`Task anchor written: ${saved.yamlPath}`)
   console.log(`Task summary written: ${saved.mdPath}`)
+  console.log(`Situation written: ${SITUATION_MD_PATH}`)
+  console.log(`Memory core updated: ${MEMORY_CORE_PATH}`)
   console.log(`domain=${saved.anchor.domain} scope=${saved.anchor.scope} durability=${saved.anchor.durability} confidence=${saved.anchor.confidence}`)
   console.log(`Guard synced: ${args["no-guard-sync"] === true ? "no" : GUARD_PATH}`)
 }

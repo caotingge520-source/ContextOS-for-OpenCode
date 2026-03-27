@@ -4,6 +4,8 @@ import { join } from "node:path"
 export const ContextOSGuard = async ({ directory }) => {
   const guardPath = join(directory, ".contextos", "guard", "SESSION_GUARD.md")
   const taskAnchorPath = join(directory, ".contextos", "tasks", "current-task.md")
+  const situationPath = join(directory, ".contextos", "tasks", "situation.md")
+  const memoryCorePath = join(directory, ".contextos", "memory", "core.md")
 
   return {
     "experimental.session.compacting": async (_input, output) => {
@@ -32,6 +34,30 @@ export const ContextOSGuard = async ({ directory }) => {
             "Use this structured task identity for domain/object/scope/durability routing.",
             "",
             taskAnchor,
+          ].join("\n"))
+        }
+      }
+
+      if (existsSync(situationPath)) {
+        const situation = readFileSync(situationPath, "utf8").trim()
+        if (situation) {
+          output.context.push([
+            "## ContextOS Situation Snapshot",
+            "Prefer this current situation summary before reconstructing from transcript.",
+            "",
+            situation,
+          ].join("\n"))
+        }
+      }
+
+      if (existsSync(memoryCorePath)) {
+        const memory = readFileSync(memoryCorePath, "utf8").trim()
+        if (memory) {
+          output.context.push([
+            "## ContextOS Core Memory",
+            "Use these durable findings as constraints and prior decisions.",
+            "",
+            memory,
           ].join("\n"))
         }
       }

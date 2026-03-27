@@ -3,7 +3,9 @@ import assert from "node:assert/strict"
 
 import {
   computeRiskAssessment,
+  computeRiskCategories,
   buildRuntimeRecommendations,
+  buildReportPayload,
 } from "../scripts/context-budget.mjs"
 
 function makeInput(overrides = {}) {
@@ -186,4 +188,78 @@ test("fresh guard and aligned task lower risk", () => {
     repeatedInstructions: [],
   })
   assert.equal(recommendations.immediateAction.title, "先刷新 guard")
+})
+
+test("risk categories include four typed gates with evidence and actions", () => {
+  const assessment = computeRiskAssessment(makeInput({
+    repeatedInstructions: [{ count: 3 }, { count: 2 }],
+  }))
+
+  const categories = computeRiskCategories({
+    assessment,
+    guardStatus: makeInput().guardStatus,
+    taskAnchorSummary: makeInput().taskAnchorSummary,
+    rescueReadiness: { ready: true },
+    situationStatus: { exists: true, length: 180 },
+    memoryStatus: { exists: true, insightCount: 4 },
+    journalStatus: { exists: true, fileCount: 3 },
+    repeatedInstructions: [{ count: 3 }, { count: 2 }],
+  })
+
+  const names = categories.map((item) => item.riskCategory).sort()
+  assert.deepEqual(names, ["context_fade", "context_overload", "context_pollution", "knowledge_bottleneck"])
+  assert.ok(categories.every((item) => ["red", "yellow", "green"].includes(item.riskLevel)))
+  assert.ok(categories.every((item) => Array.isArray(item.evidence) && item.evidence.length > 0))
+  assert.ok(categories.every((item) => typeof item.recommendedAction === "string" && item.recommendedAction.length > 0))
+})
+
+test("buildReportPayload includes required optimize-context risk fields", () => {
+  const input = makeInput()
+  const report = buildReportPayload({
+    days: 14,
+    analyzed: [
+      {
+        id: "s1",
+        title: "t1",
+        project: "p",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        messageCount: 10,
+        userMessages: 3,
+        assistantMessages: 6,
+        toolMessages: 1,
+        totalChars: 1200,
+        maxMessageChars: 300,
+        activeFiles: ["scripts/context-budget.mjs"],
+        activeFilesCount: 1,
+        longMessages: [],
+        repeatedReadPatterns: [],
+      },
+    ],
+    repeatedInstructions: [],
+    heaviestSessions: [],
+    noisySessions: [],
+    skipped: [],
+    attempts: 1,
+    insightsSummary: { evidence: ["x"] },
+    guardStatus: input.guardStatus,
+    taskAnchorSummary: {
+      ...input.taskAnchorSummary,
+      summary: "working on context runtime risk gate",
+    },
+    rescueReadiness: { ready: true, snapshotCount: 2 },
+    situationStatus: { exists: true, length: 100 },
+    memoryStatus: { exists: true, insightCount: 3 },
+    journalStatus: { exists: true, fileCount: 2, latestAgeHours: 1 },
+  })
+
+  assert.ok(["red", "yellow", "green"].includes(report.riskLevel))
+  assert.equal(typeof report.score, "number")
+  assert.equal(typeof report.riskCategory, "string")
+  assert.ok(Array.isArray(report.riskCategories) && report.riskCategories.length === 4)
+  assert.ok(Array.isArray(report.signals) && report.signals.length > 0)
+  assert.ok(Array.isArray(report.recommendations) && report.recommendations.length > 0)
+  assert.ok(report.taskAnchorSummary)
+  assert.ok(report.guardStatus)
+  assert.ok(report.rescueReadiness)
+  assert.ok(report.generatedAt)
 })

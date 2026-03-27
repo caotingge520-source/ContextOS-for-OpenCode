@@ -10,6 +10,12 @@ ContextOS for OpenCode is a free, MIT-licensed scaffold that helps you do three 
 
 This starter is designed to be dropped into a repo and then extended by OpenCode itself.
 
+## Positioning (important)
+
+- **OpenCode remains the main agent loop**.
+- **ContextOS is a filesystem-driven state layer**, not a replacement harness.
+- **Source of truth is local files**, so work can be recovered after crash/compaction.
+
 ## What is included
 
 - `.opencode/commands/`
@@ -17,7 +23,13 @@ This starter is designed to be dropped into a repo and then extended by OpenCode
   - `/optimize-context`
   - `/rescue-session`
   - `/guard-refresh`
+  - `/snapshot-guard`
+  - `/rescue-latest`
+  - `/budget-check`
+  - `/heartbeat-lite`
+  - `/render-insights`
   - `/continue-contextos`
+  - `/intake-gate`
 - `.opencode/skills/`
   - `insights`
   - `context-router`
@@ -28,6 +40,12 @@ This starter is designed to be dropped into a repo and then extended by OpenCode
   - `generate-insights.mjs`
   - `context-budget.mjs`
   - `rescue-session.mjs`
+  - `snapshot-guard.mjs`
+  - `rescue-latest.mjs`
+  - `budget-check.mjs`
+  - `heartbeat-lite.mjs`
+  - `intake-gate.mjs`
+  - `render-insights.mjs`
   - `contextos-lib.mjs`
 - `templates/`
   - `report-template.html`
@@ -52,9 +70,15 @@ Inside OpenCode, try:
 ```text
 /insights
 /optimize-context
+/budget-check
 /guard-refresh
+/snapshot-guard
 /rescue-session
+/rescue-latest
+/heartbeat-lite
+/render-insights
 /continue-contextos
+/intake-gate
 ```
 
 You can also run the scripts directly:
@@ -62,7 +86,12 @@ You can also run the scripts directly:
 ```bash
 node scripts/generate-insights.mjs --days 30
 node scripts/context-budget.mjs --days 14
+node scripts/budget-check.mjs --days 14
 node scripts/rescue-session.mjs --max-count 20
+node scripts/rescue-latest.mjs --max-count 20
+node scripts/snapshot-guard.mjs
+node scripts/heartbeat-lite.mjs
+node scripts/intake-gate.mjs --mode auto --prompt "continue current task"
 ```
 
 Optional flags (for stale/slow session exports):
@@ -86,8 +115,60 @@ node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attemp
 - `insights-report.html`
 - `.contextos/analysis/insights.json`
 - `.contextos/analysis/context-budget.json`
+- `.contextos/analysis/context-budget-report.html`
 - `.contextos/rescue/*.json`
 - `.contextos/rescue/index.md`
+- `.contextos/runtime/intake-decision.json`
+- `.contextos/runtime/selected-context.json`
+- `.contextos/runtime/selected-context.md`
+
+## Task Intake Gate (Sprint 1)
+
+`node scripts/intake-gate.mjs` is the runtime entrance for task intake before continuation.
+
+It classifies each request into:
+
+- `new_task`
+- `continue_task`
+- `pivot_task`
+- `ambiguous`
+
+Then it writes a **minimal selected context slice** (instead of dumping full SoT files):
+
+- `.contextos/runtime/intake-decision.json` — mode, task identity, evidence, selected/excluded sources, recommended action
+- `.contextos/runtime/selected-context.json` — structured selected context sections for automation
+- `.contextos/runtime/selected-context.md` — human-readable selected context
+
+Optional flags:
+
+- `--mode auto|new_task|continue_task|pivot_task|ambiguous`
+- `--max-sections <n>`
+- `--max-chars <n>`
+- `--apply` (only applies anchor updates for confident continue/pivot paths)
+
+## Source of truth files
+
+ContextOS now treats these as runtime state truth:
+
+- `.contextos/tasks/current-task.yaml` — structured current task identity and next actions
+- `.contextos/tasks/situation.md` — human-readable current situation snapshot
+- `.contextos/guard/SESSION_GUARD.md` — compaction-safe guard with must-survive constraints
+- `.contextos/rescue/latest/` — restore helper bundle (`restore-summary.md`, `latest-snapshot.json`, `continue-prompt.md`)
+- `.contextos/journal/` — write-ahead state events
+- `.contextos/memory/core.md` — core findings / durable knowledge
+
+Guard and Rescue are designed to read these files first, then consult transcript exports only as secondary context.
+
+## State chain (crash-recoverable)
+
+1. `node scripts/refresh-current-task.mjs`
+   - updates `current-task.yaml`, `current-task.md`, `situation.md`, `memory/core.md`
+2. `node scripts/snapshot-guard.mjs`
+   - writes write-ahead snapshot to `.contextos/guard/snapshots/`
+3. `node scripts/rescue-latest.mjs --max-count 20`
+   - writes rescue helper bundle under `.contextos/rescue/latest/`
+4. `node scripts/heartbeat-lite.mjs`
+   - returns `HEARTBEAT_OK` when healthy, otherwise minimal warning + one action
 
 ## Task Identity Routing
 
@@ -118,6 +199,22 @@ These fields make intent shifts easier to audit, and help route each analysis re
 This starter deliberately stays local-first.
 
 It does **not** do cross-device sync, hosted storage, or account management.
+
+## Runtime risk gate (/optimize-context)
+
+`node scripts/budget-check.mjs` (or `/optimize-context`) outputs explainable multi-category risk:
+
+- `context_fade`
+- `context_pollution`
+- `knowledge_bottleneck`
+- `context_overload`
+
+Each category includes:
+
+- `riskLevel`
+- `score`
+- `evidence`
+- `recommendedAction`
 
 ## Known limitations
 

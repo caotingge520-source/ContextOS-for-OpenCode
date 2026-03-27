@@ -6,7 +6,11 @@ import { pathToFileURL } from "node:url"
 import {
   ANALYSIS_DIR,
   GUARD_PATH,
+  JOURNAL_DIR,
+  MEMORY_CORE_PATH,
   RESCUE_DIR,
+  RESCUE_LATEST_DIR,
+  SITUATION_MD_PATH,
   exportSession,
   extractMessages,
   extractRepeatedInstructions,
@@ -16,6 +20,7 @@ import {
   loadTemplate,
   normalizeTextForMatch,
   readCurrentTaskAnchor,
+  readTextIfExists,
   readArgs,
   sampleSessions,
   saveJson,
@@ -300,6 +305,9 @@ function getTaskAnchorSummary(analyzed) {
 
 function getRescueReadiness() {
   const indexPath = path.join(RESCUE_DIR, "index.md")
+  const latestSnapshotPath = path.join(RESCUE_LATEST_DIR, "latest-snapshot.json")
+  const restoreSummaryPath = path.join(RESCUE_LATEST_DIR, "restore-summary.md")
+  const continuePromptPath = path.join(RESCUE_LATEST_DIR, "continue-prompt.md")
   if (!fs.existsSync(RESCUE_DIR)) {
     return {
       path: RESCUE_DIR,
@@ -308,6 +316,7 @@ function getRescueReadiness() {
       latestSnapshotAgeHours: null,
       latestSnapshotId: null,
       hasIndex: false,
+      hasLatestBundle: false,
       evidence: ["rescue directory missing"],
     }
   }
@@ -326,8 +335,16 @@ function getRescueReadiness() {
     .sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
 
   const latest = snapshots[0] || null
-  const latestAgeHours = latest ? hoursSince(latest.mtime.toISOString()) : null
-  const ready = snapshotFiles.length > 0 && latestAgeHours != null && latestAgeHours <= 72
+  const latestSnapshotJson = readJsonIfExists(latestSnapshotPath)
+  const latestAgeHours = latestSnapshotJson?.generatedAt
+    ? hoursSince(latestSnapshotJson.generatedAt)
+    : latest
+      ? hoursSince(latest.mtime.toISOString())
+      : null
+  const hasLatestBundle = fs.existsSync(latestSnapshotPath)
+    && fs.existsSync(restoreSummaryPath)
+    && fs.existsSync(continuePromptPath)
+  const ready = snapshotFiles.length > 0 && hasLatestBundle && latestAgeHours != null && latestAgeHours <= 72
 
   return {
     path: RESCUE_DIR,
@@ -336,9 +353,11 @@ function getRescueReadiness() {
     latestSnapshotAgeHours: latestAgeHours,
     latestSnapshotId: latest?.name || null,
     hasIndex: fs.existsSync(indexPath),
+    hasLatestBundle,
     evidence: [
       `snapshot_count=${snapshotFiles.length}`,
       `latest_snapshot_age=${formatHours(latestAgeHours)}`,
+      hasLatestBundle ? "rescue latest helper bundle exists" : "rescue latest helper bundle missing",
       fs.existsSync(indexPath) ? "rescue index exists" : "rescue index missing",
     ],
   }
@@ -372,6 +391,67 @@ function extractInsightsSummary() {
       `top repeated instruction count=${topRepeatedInstructionCount}`,
       `insights friction rate=${insights.meta?.frictionRate || "unknown"}`,
     ],
+  }
+}
+
+function getSituationStatus() {
+  const text = readTextIfExists(SITUATION_MD_PATH, "")
+  const nonEmpty = text.trim().length > 0
+  return {
+    path: SITUATION_MD_PATH,
+    exists: nonEmpty,
+    length: text.trim().length,
+    preview: text.split(/\r?\n/).filter(Boolean).slice(0, 12),
+  }
+}
+
+function getMemoryStatus() {
+  const text = readTextIfExists(MEMORY_CORE_PATH, "")
+  const nonEmpty = text.trim().length > 0
+  const insightBullets = text.split(/\r?\n/).filter((line) => /^[-*]\s+/.test(line.trim()))
+  return {
+    path: MEMORY_CORE_PATH,
+    exists: nonEmpty,
+    insightCount: insightBullets.length,
+    preview: text.split(/\r?\n/).filter(Boolean).slice(0, 12),
+  }
+}
+
+function getJournalStatus() {
+  if (!fs.existsSync(JOURNAL_DIR)) {
+    return {
+      path: JOURNAL_DIR,
+      exists: false,
+      fileCount: 0,
+      latestAt: null,
+      latestAgeHours: null,
+    }
+  }
+
+  const files = fs.readdirSync(JOURNAL_DIR).filter((name) => name.endsWith(".json"))
+  if (!files.length) {
+    return {
+      path: JOURNAL_DIR,
+      exists: true,
+      fileCount: 0,
+      latestAt: null,
+      latestAgeHours: null,
+    }
+  }
+
+  const latest = files
+    .map((name) => {
+      const stat = fs.statSync(path.join(JOURNAL_DIR, name))
+      return { name, mtime: stat.mtime.toISOString() }
+    })
+    .sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime())[0]
+
+  return {
+    path: JOURNAL_DIR,
+    exists: true,
+    fileCount: files.length,
+    latestAt: latest.mtime,
+    latestAgeHours: hoursSince(latest.mtime),
   }
 }
 
@@ -575,6 +655,98 @@ function computeRiskAssessment(input) {
   }
 }
 
+function pickSignal(signals, id) {
+  return signals.find((signal) => signal.id === id) || { score: 0, maxScore: 1, evidence: [] }
+}
+
+function buildCategoryRisk(category, score, evidence, recommendedAction) {
+  const normalized = clamp(Math.round(score), 0, 100)
+  return {
+    riskCategory: category,
+    riskLevel: normalizeRiskLevel(normalized),
+    score: normalized,
+    evidence: evidence.filter(Boolean).slice(0, 5),
+    recommendedAction,
+  }
+}
+
+function computeRiskCategories(input) {
+  const {
+    assessment,
+    guardStatus,
+    taskAnchorSummary,
+    rescueReadiness,
+    situationStatus,
+    memoryStatus,
+    journalStatus,
+    repeatedInstructions,
+  } = input
+
+  const sessionLoad = pickSignal(assessment.signals, "session_load")
+  const longOutput = pickSignal(assessment.signals, "long_output")
+  const repeated = pickSignal(assessment.signals, "repeated_instructions")
+  const guard = pickSignal(assessment.signals, "guard_freshness")
+  const task = pickSignal(assessment.signals, "task_anchor_alignment")
+  const activeFiles = pickSignal(assessment.signals, "active_files_sprawl")
+  const toolNoise = pickSignal(assessment.signals, "tool_noise_density")
+  const compaction = pickSignal(assessment.signals, "compaction_proximity")
+
+  const contextFade = buildCategoryRisk(
+    "context_fade",
+    guard.normalized * 0.45 + task.normalized * 0.35 + compaction.normalized * 0.2,
+    [
+      ...guard.evidence,
+      ...task.evidence,
+      rescueReadiness.ready ? "rescue latest is ready" : "rescue latest missing or stale",
+    ],
+    !guardStatus.exists || !guardStatus.fresh
+      ? "先刷新 guard"
+      : !rescueReadiness.ready
+        ? "先生成 rescue snapshot"
+        : "先收束当前任务范围",
+  )
+
+  const contextPollution = buildCategoryRisk(
+    "context_pollution",
+    repeated.normalized * 0.45 + toolNoise.normalized * 0.35 + longOutput.normalized * 0.2,
+    [
+      ...repeated.evidence,
+      ...toolNoise.evidence,
+      repeatedInstructions.length ? `repeatedInstructionGroups=${repeatedInstructions.length}` : "repeatedInstructionGroups=0",
+    ],
+    repeated.score >= toolNoise.score ? "先把重复约束沉淀成规则" : "先摘要长输出",
+  )
+
+  const knowledgeBottleneck = buildCategoryRisk(
+    "knowledge_bottleneck",
+    (memoryStatus.exists ? 20 : 70)
+      + (memoryStatus.insightCount >= 3 ? 0 : 15)
+      + (situationStatus.exists ? 10 : 30)
+      + (!taskAnchorSummary.summary || taskAnchorSummary.summary.length < 24 ? 15 : 0)
+      + (journalStatus.exists && journalStatus.fileCount > 0 ? 5 : 20),
+    [
+      memoryStatus.exists ? `memory_core_insights=${memoryStatus.insightCount}` : "memory core missing",
+      situationStatus.exists ? `situation_length=${situationStatus.length}` : "situation.md missing",
+      journalStatus.exists ? `journal_entries=${journalStatus.fileCount}` : "journal missing",
+      taskAnchorSummary.summary ? `task_summary_length=${taskAnchorSummary.summary.length}` : "task summary missing",
+    ],
+    !memoryStatus.exists ? "先补齐 memory/core.md 核心发现" : "先更新 situation.md 并收敛任务上下文",
+  )
+
+  const contextOverload = buildCategoryRisk(
+    "context_overload",
+    sessionLoad.normalized * 0.45 + longOutput.normalized * 0.25 + activeFiles.normalized * 0.2 + toolNoise.normalized * 0.1,
+    [
+      ...sessionLoad.evidence,
+      ...longOutput.evidence,
+      ...activeFiles.evidence,
+    ],
+    "先暂停继续扩张上下文",
+  )
+
+  return [contextFade, contextPollution, knowledgeBottleneck, contextOverload]
+}
+
 function buildRuntimeRecommendations(context) {
   const {
     assessment,
@@ -694,18 +866,29 @@ function renderTopRiskBlock(topRiskSources) {
     .join("\n")
 }
 
+function renderCategoryBlock(categories) {
+  return categories
+    .map((item) => {
+      const evidence = item.evidence.slice(0, 3).map((line) => `<li>${htmlEscape(line)}</li>`).join("")
+      return `<li><strong>${htmlEscape(item.riskCategory)}</strong> · ${item.riskLevel.toUpperCase()} (${item.score})<br/><span>${htmlEscape(item.recommendedAction)}</span><ul>${evidence}</ul></li>`
+    })
+    .join("\n")
+}
+
 function fillReportTemplate(template, report) {
   const replacements = {
     "__GENERATED_AT__": report.generatedAt,
     "__RISK_LEVEL__": report.riskLevel.toUpperCase(),
     "__RISK_LEVEL_CLASS__": report.riskLevel,
     "__RISK_SCORE__": String(report.score),
+    "__RISK_CATEGORY__": report.riskCategory,
     "__SCANNED_SESSIONS__": String(report.scannedSessions),
     "__TOTAL_MESSAGES__": String(report.sessionLoad.totalMessages),
     "__TOTAL_CHARS__": String(report.sessionLoad.totalChars),
     "__MAX_MESSAGES__": String(report.sessionLoad.maxMessages),
     "__MAX_CHARS__": String(report.sessionLoad.maxChars),
     "__TOP_RISK_SOURCES__": renderTopRiskBlock(report.topRiskSources),
+    "__RISK_CATEGORIES__": renderCategoryBlock(report.riskCategories),
     "__IMMEDIATE_ACTION__": `${htmlEscape(report.recommendations[0]?.title || "none")} - ${htmlEscape(report.recommendations[0]?.reason || "")}`,
     "__FOLLOW_UP_ACTIONS__": renderRecommendationsBlock(report.recommendations.slice(1, 4)),
     "__SIGNALS__": renderSignalList(report.signals),
@@ -716,6 +899,12 @@ function fillReportTemplate(template, report) {
     "__RESCUE_STATUS__": report.rescueReadiness.ready
       ? `ready (${report.rescueReadiness.snapshotCount} snapshots)`
       : `not-ready (${report.rescueReadiness.snapshotCount} snapshots)`,
+    "__MEMORY_STATUS__": report.memoryStatus.exists
+      ? `ready (insights=${report.memoryStatus.insightCount})`
+      : "missing",
+    "__JOURNAL_STATUS__": report.journalStatus.exists
+      ? `entries=${report.journalStatus.fileCount}, latest=${formatHours(report.journalStatus.latestAgeHours)}`
+      : "missing",
   }
 
   let output = template
@@ -742,6 +931,9 @@ function buildReportPayload(data) {
     guardStatus,
     taskAnchorSummary,
     rescueReadiness,
+    situationStatus,
+    memoryStatus,
+    journalStatus,
   } = data
 
   const sessionLoad = summarizeSessionLoad(analyzed)
@@ -760,6 +952,17 @@ function buildReportPayload(data) {
     rescueReadiness,
     repeatedInstructions,
   })
+  const categoryRisks = computeRiskCategories({
+    assessment,
+    guardStatus,
+    taskAnchorSummary,
+    rescueReadiness,
+    situationStatus,
+    memoryStatus,
+    journalStatus,
+    repeatedInstructions,
+  })
+  const topCategoryRisk = [...categoryRisks].sort((a, b) => b.score - a.score)[0]
 
   return {
     generatedAt: new Date().toISOString(),
@@ -769,6 +972,8 @@ function buildReportPayload(data) {
     skippedSessions: skipped.length,
     riskLevel: assessment.riskLevel,
     score: assessment.score,
+    riskCategory: topCategoryRisk.riskCategory,
+    riskCategories: categoryRisks,
     signals: assessment.signals,
     topRiskSources: assessment.topRiskSources,
     recommendations: recommendationBundle.recommendations,
@@ -779,8 +984,11 @@ function buildReportPayload(data) {
     noisySessions,
     repeatedInstructions,
     taskAnchorSummary,
+    situationStatus,
     guardStatus,
     rescueReadiness,
+    journalStatus,
+    memoryStatus,
     insightsSummary,
   }
 }
@@ -815,6 +1023,9 @@ async function main() {
   const taskAnchorSummary = getTaskAnchorSummary(analyzed)
   const rescueReadiness = getRescueReadiness()
   const insightsSummary = extractInsightsSummary()
+  const situationStatus = getSituationStatus()
+  const memoryStatus = getMemoryStatus()
+  const journalStatus = getJournalStatus()
 
   const heaviestSessions = [...analyzed]
     .sort((a, b) => b.totalChars - a.totalChars)
@@ -844,6 +1055,9 @@ async function main() {
     guardStatus,
     taskAnchorSummary,
     rescueReadiness,
+    situationStatus,
+    memoryStatus,
+    journalStatus,
   })
 
   const jsonPath = path.join(ANALYSIS_DIR, "context-budget.json")
@@ -855,6 +1069,7 @@ async function main() {
   saveText(htmlPath, fillReportTemplate(template, report))
 
   console.log(`当前风险等级：${report.riskLevel.toUpperCase()} (${report.score}/100)`)
+  console.log(`最高风险类别：${report.riskCategory}`)
   console.log(`最高风险来源：${report.topRiskSources[0]?.label || "none"}`)
   console.log(`最推荐动作：${report.immediateAction?.title || "none"}`)
   console.log("建议动作：")
@@ -876,6 +1091,7 @@ export {
   analyzeSessionWeight,
   summarizeSessionLoad,
   computeRiskAssessment,
+  computeRiskCategories,
   buildRuntimeRecommendations,
   buildReportPayload,
   normalizeRiskLevel,

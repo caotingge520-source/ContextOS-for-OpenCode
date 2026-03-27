@@ -1,0 +1,178 @@
+{
+  "generatedAt": "2026-03-24T16:08:09.374Z",
+  "sourceOfTruth": {
+    "currentTask": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\tasks\\current-task.yaml",
+    "situation": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\tasks\\situation.md",
+    "guard": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\guard\\SESSION_GUARD.md",
+    "memory": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\memory\\core.md"
+  },
+  "currentTaskAnchor": {
+    "task_id": "task-1774367422054",
+    "title": "refresh current task identity routing anchor",
+    "summary": "refresh current task identity routing anchor",
+    "domain": "capability",
+    "object_type": "named capability unit",
+    "object_name": "insights",
+    "scope": "L2",
+    "durability": "candidate",
+    "confidence": 0.9,
+    "active_files": [
+      "`.contextos/analysis/insights.json`（已更新：分析 25/35）",
+      "`.contextos/analysis/context-budget.json`（已更新：扫描 19）",
+      "`insights-report.html`"
+    ],
+    "recent_commands": [],
+    "constraints": [
+      "Stay local-first",
+      "Do not add cloud sync",
+      "Prefer reviewable patches over hidden automation",
+      "继续优先复用现有本地分析文件进行续航，不做空口承诺的状态更新"
+    ],
+    "next_steps": [
+      "逐批尝试 `node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000` 与 `node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000`",
+      "如果超时仍多，优先修复导出链路（先确认 `opencode export` CLI 的稳定性再考虑更改脚本）",
+      "在可复核状态下执行 `/optimize-context`，并按建议把规则沉入 AGENTS 或 Skill"
+    ],
+    "updated_at": "2026-03-24T16:06:34.512Z",
+    "evidence": [
+      "请求/上下文直接指向当前项目或仓库",
+      "识别到稳定能力单元: insights",
+      "证据不足以直接 durable，按 candidate 处理",
+      "recentMessages=0 (fallback)",
+      "repeatedInstructionCount=4"
+    ]
+  },
+  "situationPreview": [
+    "# Current Situation",
+    "Generated at: 2026-03-24T16:06:34.514Z",
+    "## What we are doing",
+    "- refresh current task identity routing anchor",
+    "- refresh current task identity routing anchor",
+    "## Task identity",
+    "- domain: capability",
+    "- scope: L2",
+    "- durability: candidate",
+    "- object: named capability unit / insights",
+    "## Active files",
+    "- `.contextos/analysis/insights.json`（已更新：分析 25/35）",
+    "- `.contextos/analysis/context-budget.json`（已更新：扫描 19）",
+    "- `insights-report.html`",
+    "## Recent decisions",
+    "- 请求/上下文直接指向当前项目或仓库",
+    "- 识别到稳定能力单元: insights",
+    "- 证据不足以直接 durable，按 candidate 处理",
+    "- recentMessages=0 (fallback)",
+    "- repeatedInstructionCount=4"
+  ],
+  "memoryPreview": [
+    "# Core Discoveries",
+    "## 2026-03-24T15:50:22.058Z",
+    "- task: refresh current task identity routing anchor",
+    "- identity: capability/L2/candidate",
+    "- next step: 逐批尝试 `node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000` 与 `node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000`",
+    "- constraint: Stay local-first",
+    "## 2026-03-24T16:06:34.514Z",
+    "- task: refresh current task identity routing anchor",
+    "- identity: capability/L2/candidate",
+    "- next step: 逐批尝试 `node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000` 与 `node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000`",
+    "- constraint: Stay local-first"
+  ],
+  "mustSurviveConstraints": [
+    "Stay local-first",
+    "Do not add cloud sync",
+    "Prefer reviewable patches over hidden automation",
+    "继续优先复用现有本地分析文件进行续航，不做空口承诺的状态更新"
+  ],
+  "snapshots": [
+    {
+      "id": "ses_3aaf1fd39ffedSlBJY8vwdErzR",
+      "title": "尼王3新玩法与体验评价与探讨",
+      "project": "global",
+      "updatedAt": "2026-02-13T03:39:12.116Z",
+      "messageCount": 11,
+      "userCount": 1,
+      "assistantCount": 10,
+      "toolCount": 0,
+      "preview": "user: 如何评价游戏《仁王3》，这一作有什么新的玩法和体验？\nassistant: prt_c550e1ce3001BFb7zNrAlsfaHE\nses_3aaf1fd39ffedSlBJY8vwdErzR\nmsg_c550e02e2001ubyeKcpWBtQm3O\nstep-start\n## Search Error\n\nassistant: prt_c550e4ad00019BwHeUZ96wy7N8\nses_3aaf1fd39ffedSlBJY8vwdErzR\nmsg_c550e449f001Z8LOrulNNoRmW6\nstep-start\nTitle: 仁王3实机演示详解\nassistant: prt_c550e6f06001YWUsDmv1A28ka2\nses_3aaf1fd39ffedSlBJY8vwdErzR\nmsg_c550e67b60013GR73TjaD6ziGP\nstep-start\n**Evaluating gam"
+    },
+    {
+      "id": "ses_3ab04070fffe8xrzLaPCQiFsY4",
+      "title": "项目智能体基于目录结构的实现方案",
+      "project": "global",
+      "updatedAt": "2026-02-13T03:15:53.342Z",
+      "messageCount": 9,
+      "userCount": 1,
+      "assistantCount": 7,
+      "toolCount": 0,
+      "preview": "user: 根据项目目录下的文件，生成项目的智能体\nassistant: prt_c54fc1108001V9dA0129rRDium\nses_3ab04070fffe8xrzLaPCQiFsY4\nmsg_c54fbf923001g3ajj6uVnFCelj\nstep-start\n用户要求根据项目目录下的文件生成\nassistant: prt_c54fc3404001H1hgypXRpG2zEs\nses_3ab04070fffe8xrzLaPCQiFsY4\nmsg_c54fc15c00017Jfc0WKxKT6rmK\nstep-start\n项目目录下只有一个文件 `AGE\nassistant: prt_c54fc4ac90015CNqjiBJsZIA09\nses_3ab04070fffe8xrzLaPCQiFsY4\nmsg_c54fc3b76001jrpRdbagGZdqC6\nstep-start\n现在我已经阅读了完整的AGENT"
+    },
+    {
+      "id": "ses_3ab13dc13ffeO2sZ45oYlottZS",
+      "title": "评价仁王3：新玩法与体验分析",
+      "project": "global",
+      "updatedAt": "2026-02-13T03:13:08.256Z",
+      "messageCount": 12,
+      "userCount": 1,
+      "assistantCount": 11,
+      "toolCount": 0,
+      "preview": "user: 如何评价游戏《仁王3》，这一作有什么新的玩法和体验？\nassistant: prt_c54ec349d001X0TzXbNcvsEn4X\nses_3ab13dc13ffeO2sZ45oYlottZS\nmsg_c54ec242f001l9AU5CQoy0o22l\nstep-start\n**Searching for \nassistant: prt_c54ec7d25001gQah19B8JuRTNm\nses_3ab13dc13ffeO2sZ45oYlottZS\nmsg_c54ec723b001mqYJkD7HB6ZNnu\nstep-start\nTitle: 《仁王3》评测：一\nassistant: prt_c54eca1a1001bBRmPik0QUDweQ\nses_3ab13dc13ffeO2sZ45oYlottZS\nmsg_c54ec9a42001MJqjUnIXx2sVlP\nstep-start\n**Searching for "
+    },
+    {
+      "id": "ses_3ab16fc82ffeiX60rchret5DuU",
+      "title": "Project-specific agent and skill build from project files",
+      "project": "global",
+      "updatedAt": "2026-02-13T02:56:45.425Z",
+      "messageCount": 29,
+      "userCount": 2,
+      "assistantCount": 22,
+      "toolCount": 1,
+      "preview": "user: 根据项目文件，构建项目的专属智能体和skill\nassistant: prt_c54e91671001ErZqHFHyDcNJ69\nses_3ab16fc82ffeiX60rchret5DuU\nmsg_c54e903bf001534OGvqxgvpfA2\nstep-start\n用户要求根据项目文件构建项目的专\nassistant: prt_c54e925bc001Zn3fmC2fTzYccO\nses_3ab16fc82ffeiX60rchret5DuU\nmsg_c54e918bc001XAcs0zEoo9aB6s\nstep-start\n好的，项目中只有一个文件 `D-\nassistant: prt_c54e93e12001e8jFNtzEz7kzz3\nses_3ab16fc82ffeiX60rchret5DuU\nmsg_c54e927af0012yD9HEpr6XNaLq\nstep-start\n用户希望根据项目文件构建专属智能"
+    },
+    {
+      "id": "ses_3aef0cdf4ffeXe3zBI6bCmX7jh",
+      "title": "Steam 2025 白皮书关键点调研与评价",
+      "project": "global",
+      "updatedAt": "2026-02-12T08:55:25.564Z",
+      "messageCount": 3,
+      "userCount": 1,
+      "assistantCount": 2,
+      "toolCount": 0,
+      "preview": "user: https://www.gamersky.com/zhuanti/whitepaper/?shareRef=App_iOS 如何评价游民星空出品的《2025年Steam白皮书》，几百页的内容里，有什么关键信息值得重点关注？  使用D-Wri\nassistant: prt_c510f4b1a001KhL1U3tJHgW40f\nses_3aef0cdf4ffeXe3zBI6bCmX7jh\nmsg_c510f324a001i32kTo8VHYC8RI\nstep-start\n用户想了解游民星空出品的《202\nassistant: prt_c510fa821001XHts3o3wAsxpMl\nses_3aef0cdf4ffeXe3zBI6bCmX7jh\nmsg_c510f75d2001PlxDuTO1pxmmV5\nstep-start\n现在我已经好的，用户想了解游民星"
+    },
+    {
+      "id": "ses_3b838c1cbffewuBNWhAokqehWn",
+      "title": "根据目录整理 AGENTS.md",
+      "project": "global",
+      "updatedAt": "2026-02-12T08:54:17.365Z",
+      "messageCount": 47,
+      "userCount": 3,
+      "assistantCount": 41,
+      "toolCount": 0,
+      "preview": "user: 根据目录的内容，帮我整理这个项目的AGENTS.md\nassistant: prt_c47c74fbf001PIR3i5JRGvZiF5\nses_3b838c1cbffewuBNWhAokqehWn\nmsg_c47c73e83001NaPPHdh7Ds4tM7\nstep-start\nClaude Opus 4.5 \nassistant: prt_c47c75517001jKAVl9aMs4XACd\nses_3b838c1cbffewuBNWhAokqehWn\nmsg_c47c74fd6001Rgtwk8Bp4lvvi7\nstep-start\nClaude Opus 4.5 \nassistant: prt_c47c75ed7001lzgLr1vHAFmEDm\nses_3b838c1cbffewuBNWhAokqehWn\nmsg_c47c7552e001ELhrSFUagoE2da\nstep-start\nClaude Opus 4.5 "
+    },
+    {
+      "id": "ses_3b0693adbffeIqoL9K92a83Bkx",
+      "title": "智能体生成基于 agents.MD 文档的实现思路",
+      "project": "global",
+      "updatedAt": "2026-02-12T02:07:10.505Z",
+      "messageCount": 8,
+      "userCount": 1,
+      "assistantCount": 5,
+      "toolCount": 0,
+      "preview": "user: 根据目录里的文档agents.MD，生成本项目的智能体\nassistant: prt_c4f96f704001JOV8WSeBvUT8RS\nses_3b0693adbffeIqoL9K92a83Bkx\nmsg_c4f96c557001l2PeVVU7dNjxe6\nstep-start\n用户想让我根据 AGENTS.m\nassistant: prt_c4f972dcb001xwVAAOCO1tuC3O\nses_3b0693adbffeIqoL9K92a83Bkx\nmsg_c4f96fe31001G7ZW7aAkzpjZ6f\nstep-start\n用户想让我根据 AGENTS.m\nassistant: prt_c4f987282001uIlwIORrBAMhSd\nses_3b0693adbffeIqoL9K92a83Bkx\nmsg_c4f9862f4001n4qUhyc3wsbqoB\nstep-start\n看起来用户想让我根据 AGENT"
+    },
+    {
+      "id": "ses_3b07cbca9ffebaCCEAe4QSsZic",
+      "title": "根据 agents.MD 构建本项目的智能体",
+      "project": "global",
+      "updatedAt": "2026-02-12T01:49:03.041Z",
+      "messageCount": 54,
+      "userCount": 2,
+      "assistantCount": 21,
+      "toolCount": 2,
+      "preview": "user: 根据agents.MD 构建本项目的智能体\nassistant: prt_c4f837558001NNTXLnhSqg1Nby\nses_3b07cbca9ffebaCCEAe4QSsZic\nmsg_c4f834395001eifDJK8qT6UaFs\nstep-start\n用户要求根据AGENTS.MD构\nother: 分析AGENTS.MD，提取智能体配置规范\nother: 创建主智能体(Sisyphus)配置文件"
+    }
+  ],
+  "recommendedOpenFile": "`.contextos/analysis/insights.json`（已更新：分析 25/35）",
+  "nextAction": "逐批尝试 `node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000` 与 `node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000`"
+}

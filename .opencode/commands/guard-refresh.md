@@ -11,6 +11,7 @@ Read:
 Run first:
 
 !`node scripts/refresh-current-task.mjs`
+!`node scripts/snapshot-guard.mjs`
 
 Update `.contextos/guard/SESSION_GUARD.md` using the template structure.
 
@@ -19,4 +20,5 @@ Requirements:
 - keep the file short and concrete
 - capture current task, active files, decisions, constraints, and next 3 steps
 - include current task identity fields: domain, object, scope, durability, confidence
+- include the latest write-ahead snapshot metadata
 - avoid vague summaries

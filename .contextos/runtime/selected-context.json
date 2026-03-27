@@ -1,0 +1,103 @@
+{
+  "intakeMode": "new_task",
+  "taskIdentity": {
+    "domain": "capability",
+    "object_type": "named capability unit",
+    "object_name": "insights",
+    "scope": "L2",
+    "durability": "candidate",
+    "confidence": 0.9,
+    "evidence": [
+      "请求/上下文直接指向当前项目或仓库",
+      "识别到稳定能力单元: insights",
+      "证据不足以直接 durable，按 candidate 处理"
+    ]
+  },
+  "sections": {
+    "currentTaskAnchor": {
+      "title": "refresh current task identity routing anchor",
+      "summary": "继续优化当前任务的导出链路，先分析失败模式并修复",
+      "domain": "capability",
+      "object": "named capability unit / insights",
+      "scope": "L2",
+      "durability": "candidate"
+    },
+    "situationSummary": {
+      "preview": [
+        "# Current Situation",
+        "Generated at: 2026-03-24T16:06:34.514Z",
+        "## What we are doing",
+        "- refresh current task identity routing anchor",
+        "- refresh current task identity routing anchor",
+        "## Task identity",
+        "- domain: capability",
+        "- scope: L2",
+        "- durability: candidate",
+        "- object: named capability unit / insights",
+        "## Active files",
+        "- `.contextos/analysis/insights.json`（已更新：分析 25/35）",
+        "- `.contextos/analysis/context-budget.json`（已更新：扫描 19）",
+        "- `insights-report.html`"
+      ]
+    },
+    "mustSurviveConstraints": {
+      "constraints": [
+        "Stay local-first",
+        "Do not add cloud sync",
+        "Prefer reviewable patches over hidden automation",
+        "继续优先复用现有本地分析文件进行续航，不做空口承诺的状态更新"
+      ]
+    },
+    "freshGuardSnapshotSummary": null,
+    "relevantRescueReadiness": {
+      "generatedAt": "2026-03-24T16:08:09.374Z",
+      "recommendedOpenFile": "`.contextos/analysis/insights.json`（已更新：分析 25/35）",
+      "nextAction": "逐批尝试 `node scripts/generate-insights.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000` 与 `node scripts/context-budget.mjs --days 45 --max-count 120 --max-export-attempts 35 --export-timeout-ms 22000`"
+    },
+    "relevantCapabilityNotes": null,
+    "globalPreferences": null,
+    "riskGateSignal": {
+      "riskLevel": "red",
+      "riskCategory": "context_overload",
+      "recommendedAction": "先收束当前任务范围"
+    },
+    "recommendedNextStep": {
+      "action": "先 refresh guard，再进入本轮任务",
+      "recommendedCapability": null
+    }
+  },
+  "selectedSources": [
+    {
+      "source": "current_task_anchor",
+      "reason": "primary anchor for task identity and next steps",
+      "path": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\tasks\\current-task.yaml"
+    },
+    {
+      "source": "must_survive_constraints",
+      "reason": "constraints must survive regardless of task mode",
+      "path": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\guard\\SESSION_GUARD.md"
+    },
+    {
+      "source": "relevant_rescue_readiness",
+      "reason": "high risk mode loads rescue helper for recoverability",
+      "path": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\rescue\\latest\\latest-snapshot.json"
+    },
+    {
+      "source": "risk_gate_signal",
+      "reason": "intake should respect latest risk gate output",
+      "path": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\analysis\\context-budget.json"
+    },
+    {
+      "source": "situation_summary",
+      "reason": "kept as minimal situational context",
+      "path": "D:\\ai\\ctxos\\ContextOS-for-OpenCode\\.contextos\\tasks\\situation.md"
+    }
+  ],
+  "excludedSources": [],
+  "budget": {
+    "maxSections": 5,
+    "maxChars": 2200,
+    "usedChars": 1269
+  },
+  "generatedAt": "2026-03-26T14:14:43.858Z"
+}

@@ -95,12 +95,13 @@
     <section class="head">
       <div class="panel">
         <h1>Context Runtime Risk Report</h1>
-        <div class="muted">生成时间：2026-03-22T17:11:18.339Z</div>
+        <div class="muted">生成时间：2026-03-24T16:11:53.257Z</div>
       </div>
       <div class="panel risk-card red">
         <h3>当前风险等级</h3>
         <div style="font-size:32px;font-weight:700;">RED</div>
-        <div class="muted">风险分：84/100</div>
+        <div class="muted">风险分：70/100</div>
+        <div class="muted">风险类别：context_overload</div>
       </div>
     </section>
 
@@ -120,16 +121,26 @@
         <h2>Top 风险来源</h2>
         <ul><li><strong>Session 负载压力</strong> (20/20) - max_messages=352</li>
 <li><strong>长文本/大工具输出</strong> (14/14) - long_output_events=79</li>
-<li><strong>当前任务锚点对齐度</strong> (12/12) - current-task.yaml missing</li></ul>
+<li><strong>重复指令堆叠</strong> (10/12) - repeated_groups=3</li></ul>
       </div>
+      <div class="panel">
+        <h2>四类风险门控</h2>
+        <ul><li><strong>context_fade</strong> · YELLOW (42)<br/><span>先收束当前任务范围</span><ul><li>guard_age=&lt;1h</li><li>contains current task section</li><li>contains next steps</li></ul></li>
+<li><strong>context_pollution</strong> · YELLOW (61)<br/><span>先把重复约束沉淀成规则</span><ul><li>repeated_groups=3</li><li>top_repeated_count=3</li><li>within_session_repeats=6</li></ul></li>
+<li><strong>knowledge_bottleneck</strong> · GREEN (35)<br/><span>先更新 situation.md 并收敛任务上下文</span><ul><li>memory_core_insights=8</li><li>situation_length=963</li><li>journal_entries=6</li></ul></li>
+<li><strong>context_overload</strong> · RED (91)<br/><span>先暂停继续扩张上下文</span><ul><li>max_messages=352</li><li>max_chars=1320002</li><li>avg_messages=77</li></ul></li></ul>
+      </div>
+    </section>
+
+    <section class="cols">
       <div class="panel">
         <h2>建议动作</h2>
         <ul>
-          <li><strong>立即动作：</strong>先刷新 guard - SESSION_GUARD 不存在或已过期，继续扩张上下文会显著增加 compaction 后失真风险。</li>
+          <li><strong>立即动作：</strong>先收束当前任务范围 - 最高风险来源表明会话已进入高负载，先降复杂度才能保住上下文连续性。</li>
         </ul>
         <ul style="margin-top:10px;"><li><strong>1. 先暂停继续扩张上下文</strong> - 在风险恢复到 yellow/green 前，避免新增并行支线与大段原文搬运。</li>
-<li><strong>2. 先收束当前任务范围</strong> - current-task 锚点与最近会话可能脱节，先统一目标/边界/下一步。</li>
-<li><strong>3. 先把重复约束沉淀成规则</strong> - 将高频重复指令固定到 AGENTS 或 skill，减少上下文反复解释成本。</li></ul>
+<li><strong>2. 先把重复约束沉淀成规则</strong> - 将高频重复指令固定到 AGENTS 或 skill，减少上下文反复解释成本。</li>
+<li><strong>3. 先摘要长输出</strong> - 把长工具输出改为结论+决策摘要，避免下一轮继续携带历史负担。</li></ul>
       </div>
     </section>
 
@@ -138,20 +149,22 @@
       <div class="signal red"><h4>Session 负载压力 <span>20/20</span></h4><ul><li>max_messages=352</li><li>max_chars=1320002</li><li>avg_messages=77</li></ul></div>
 <div class="signal red"><h4>长文本/大工具输出 <span>14/14</span></h4><ul><li>long_output_events=79</li><li>max_session_chars=1320002</li></ul></div>
 <div class="signal red"><h4>重复指令堆叠 <span>10/12</span></h4><ul><li>repeated_groups=3</li><li>top_repeated_count=3</li><li>within_session_repeats=6</li></ul></div>
-<div class="signal yellow"><h4>Guard 快照新鲜度 <span>9/14</span></h4><ul><li>guard_age=1d</li><li>contains current task section</li><li>contains next steps</li></ul></div>
-<div class="signal red"><h4>当前任务锚点对齐度 <span>12/12</span></h4><ul><li>current-task.yaml missing</li></ul></div>
+<div class="signal green"><h4>Guard 快照新鲜度 <span>2/14</span></h4><ul><li>guard_age=&lt;1h</li><li>contains current task section</li><li>contains next steps</li></ul></div>
+<div class="signal yellow"><h4>当前任务锚点对齐度 <span>8/12</span></h4><ul><li>anchor active_files do not match recent session files</li></ul></div>
 <div class="signal red"><h4>活跃文件扩张 <span>10/10</span></h4><ul><li>unique_active_files=77</li><li>max_active_files_in_session=22</li></ul></div>
 <div class="signal green"><h4>工具调用噪声密度 <span>1/10</span></h4><ul><li>average_tool_density=0.01</li><li>noisy_tool_sessions=0</li></ul></div>
-<div class="signal red"><h4>Compaction 临近风险 <span>8/8</span></h4><ul><li>workload_component=20</li><li>guard_component=9</li><li>task_component=12</li></ul></div>
+<div class="signal yellow"><h4>Compaction 临近风险 <span>5/8</span></h4><ul><li>workload_component=20</li><li>guard_component=2</li><li>task_component=8</li></ul></div>
     </section>
 
     <section class="cols">
       <div class="panel">
         <h2>Guard / Task / Rescue 状态</h2>
         <ul>
-          <li><strong>Guard:</strong> stale (1d)</li>
-          <li><strong>Task Anchor:</strong> missing</li>
-          <li><strong>Rescue:</strong> not-ready (0 snapshots)</li>
+          <li><strong>Guard:</strong> fresh (<1h)</li>
+          <li><strong>Task Anchor:</strong> drifting (<1h)</li>
+          <li><strong>Rescue:</strong> ready (8 snapshots)</li>
+          <li><strong>Memory:</strong> ready (insights=8)</li>
+          <li><strong>Journal:</strong> entries=6, latest=<1h</li>
         </ul>
       </div>
       <div class="panel">

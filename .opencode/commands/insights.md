@@ -5,7 +5,7 @@ agent: build
 
 Run this command sequence:
 
-!`node scripts/generate-insights.mjs --days 30`
+!`node scripts/render-insights.mjs --days 30`
 
 Then:
 1. Read `@.contextos/analysis/insights.json`

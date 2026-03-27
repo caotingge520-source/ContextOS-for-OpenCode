@@ -9,10 +9,19 @@ export const OUTPUT_ROOT = process.env.CONTEXTOS_OUTPUT_DIR
   : ROOT
 export const ANALYSIS_DIR = path.join(OUTPUT_ROOT, ".contextos", "analysis")
 export const RESCUE_DIR = path.join(OUTPUT_ROOT, ".contextos", "rescue")
+export const RUNTIME_DIR = path.join(OUTPUT_ROOT, ".contextos", "runtime")
 export const GUARD_PATH = path.join(OUTPUT_ROOT, ".contextos", "guard", "SESSION_GUARD.md")
 export const TASKS_DIR = path.join(OUTPUT_ROOT, ".contextos", "tasks")
 export const CURRENT_TASK_YAML_PATH = path.join(TASKS_DIR, "current-task.yaml")
 export const CURRENT_TASK_MD_PATH = path.join(TASKS_DIR, "current-task.md")
+export const INTAKE_DECISION_PATH = path.join(RUNTIME_DIR, "intake-decision.json")
+export const SELECTED_CONTEXT_MD_PATH = path.join(RUNTIME_DIR, "selected-context.md")
+export const SELECTED_CONTEXT_JSON_PATH = path.join(RUNTIME_DIR, "selected-context.json")
+export const SITUATION_MD_PATH = path.join(TASKS_DIR, "situation.md")
+export const RESCUE_LATEST_DIR = path.join(RESCUE_DIR, "latest")
+export const JOURNAL_DIR = path.join(OUTPUT_ROOT, ".contextos", "journal")
+export const MEMORY_DIR = path.join(OUTPUT_ROOT, ".contextos", "memory")
+export const MEMORY_CORE_PATH = path.join(MEMORY_DIR, "core.md")
 
 export function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true })
@@ -1270,6 +1279,33 @@ export function saveJson(filePath, data) {
 export function saveText(filePath, value) {
   ensureDir(path.dirname(filePath))
   fs.writeFileSync(filePath, value, "utf8")
+}
+
+export function readTextIfExists(filePath, fallback = "") {
+  if (!fs.existsSync(filePath)) return fallback
+  return fs.readFileSync(filePath, "utf8")
+}
+
+export function appendJournalEntry(entry = {}, options = {}) {
+  const now = new Date().toISOString()
+  const journalDir = options.journalDir || JOURNAL_DIR
+  ensureDir(journalDir)
+
+  const payload = {
+    timestamp: now,
+    type: String(entry.type || "state_update"),
+    title: String(entry.title || "ContextOS state update"),
+    summary: String(entry.summary || ""),
+    files: Array.isArray(entry.files) ? entry.files : [],
+    next_steps: Array.isArray(entry.next_steps) ? entry.next_steps : [],
+    constraints: Array.isArray(entry.constraints) ? entry.constraints : [],
+    metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+  }
+
+  const stamp = now.replace(/[:.]/g, "-")
+  const filePath = path.join(journalDir, `${stamp}-${slugify(payload.type) || "entry"}.json`)
+  saveJson(filePath, payload)
+  return filePath
 }
 
 export function summarizeProjects(sessions) {

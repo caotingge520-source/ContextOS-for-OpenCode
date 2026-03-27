@@ -101,6 +101,7 @@
         <h3>当前风险等级</h3>
         <div style="font-size:32px;font-weight:700;">__RISK_LEVEL__</div>
         <div class="muted">风险分：__RISK_SCORE__/100</div>
+        <div class="muted">风险类别：__RISK_CATEGORY__</div>
       </div>
     </section>
 
@@ -120,6 +121,13 @@
         <h2>Top 风险来源</h2>
         <ul>__TOP_RISK_SOURCES__</ul>
       </div>
+      <div class="panel">
+        <h2>四类风险门控</h2>
+        <ul>__RISK_CATEGORIES__</ul>
+      </div>
+    </section>
+
+    <section class="cols">
       <div class="panel">
         <h2>建议动作</h2>
         <ul>
@@ -141,6 +149,8 @@
           <li><strong>Guard:</strong> __GUARD_STATUS__</li>
           <li><strong>Task Anchor:</strong> __TASK_STATUS__</li>
           <li><strong>Rescue:</strong> __RESCUE_STATUS__</li>
+          <li><strong>Memory:</strong> __MEMORY_STATUS__</li>
+          <li><strong>Journal:</strong> __JOURNAL_STATUS__</li>
         </ul>
       </div>
       <div class="panel">
